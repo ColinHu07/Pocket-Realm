@@ -1,10 +1,11 @@
 import Foundation
 
 struct Adventure {
-    enum Phase: Equatable { case scanning, planning, exploring, revealed, questing, returning, complete }
+    enum Phase: Equatable { case scanning, planning, ready, exploring, revealed, questing, returning, complete }
     private(set) var phase: Phase = .scanning
     mutating func finishScan() { if phase == .scanning { phase = .planning } }
-    mutating func acceptPlan() { if phase == .planning { phase = .exploring } }
+    mutating func acceptPlan() { if phase == .planning { phase = .ready } }
+    mutating func beginExploring() { if phase == .ready { phase = .exploring } }
     @discardableResult mutating func reveal(trackingReady: Bool, proximitySatisfied: Bool) -> Bool {
         guard phase == .exploring, trackingReady, proximitySatisfied else { return false }
         phase = .revealed
@@ -66,11 +67,19 @@ struct EncounterPlan: Codable {
     let objectID: String
     let hint: String
     let greeting: String
+    var room: RoomUnderstanding? = nil
     func validate(against candidates: [RoomCandidate]) throws {
         guard candidates.contains(where: { $0.id == objectID }),
               !hint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !greeting.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               hint.count <= 240, greeting.count <= 400 else { throw PlanError.invalidPlan }
+    }
+    func validateRoom(against candidates: [RoomCandidate], surfaces: [RoomSurfaceContext]) throws {
+        try validate(against: candidates)
+        guard let room else {
+            throw PlanError.server("Your server needs the room-understanding update. Restart server/server.py on your Mac, then try again.")
+        }
+        try room.validate(candidates: candidates, surfaces: surfaces, friendID: objectID)
     }
 }
 

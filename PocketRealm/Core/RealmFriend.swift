@@ -69,17 +69,3 @@ enum RealmFriend: String, CaseIterable, Identifiable, Codable {
         }
     }
 }
-
-/// Uses only observed spawn points, including a one-location room without inventing geometry.
-enum QuestLocation {
-    static func choose(from candidates: [RoomCandidate], friendID: String) -> RoomCandidate? {
-        guard let home = candidates.first(where: { $0.id == friendID }), home.position.count == 3 else { return nil }
-        let others = candidates.filter { $0.id != friendID && $0.position.count == 3 }
-        // Prefer the closest distinct landmark to avoid sending the player across the whole room.
-        return others.min { distance($0, home) < distance($1, home) } ?? home
-    }
-    private static func distance(_ a: RoomCandidate, _ b: RoomCandidate) -> Float {
-        let dx = a.position[0] - b.position[0], dz = a.position[2] - b.position[2]
-        return dx * dx + dz * dz
-    }
-}

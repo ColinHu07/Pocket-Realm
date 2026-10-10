@@ -10,6 +10,9 @@ final class AdventureTests: XCTestCase {
         game.finishScan()
         XCTAssertFalse(game.reveal(trackingReady: true, proximitySatisfied: true))
         game.acceptPlan()
+        XCTAssertEqual(game.phase, .ready)
+        XCTAssertFalse(game.reveal(trackingReady: true, proximitySatisfied: true))
+        game.beginExploring()
         XCTAssertFalse(game.reveal(trackingReady: false, proximitySatisfied: true))
         XCTAssertFalse(game.reveal(trackingReady: true, proximitySatisfied: false))
         XCTAssertTrue(game.reveal(trackingReady: true, proximitySatisfied: true))
@@ -23,6 +26,7 @@ final class AdventureTests: XCTestCase {
         XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: true))
         game.finishScan()
         game.acceptPlan()
+        game.beginExploring()
         XCTAssertTrue(game.reveal(trackingReady: true, proximitySatisfied: true))
         XCTAssertFalse(game.collect(trackingReady: true, inReach: true))
         XCTAssertFalse(game.talk(trackingReady: false, inReach: true))
@@ -41,16 +45,6 @@ final class AdventureTests: XCTestCase {
         XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: true))
         game = Adventure()
         XCTAssertEqual(game.phase, .scanning)
-    }
-
-    func testQuestUsesNearestDistinctObservedLocationAndOneLocationFallback() {
-        let home = RoomCandidate(id: "home", category: "chair", dimensions: [1, 1, 1], position: [0, 0, 0], distance: 1)
-        let near = RoomCandidate(id: "near", category: "table", dimensions: [1, 1, 1], position: [2, 0, 0], distance: 2)
-        let far = RoomCandidate(id: "far", category: "storage", dimensions: [1, 1, 1], position: [4, 0, 0], distance: 3)
-        XCTAssertEqual(QuestLocation.choose(from: [far, home, near], friendID: "home")?.id, "near")
-        XCTAssertEqual(QuestLocation.choose(from: [home], friendID: "home")?.id, "home")
-        XCTAssertNil(QuestLocation.choose(from: [home], friendID: "invented"))
-        XCTAssertNil(QuestLocation.choose(from: [], friendID: "home"))
     }
 
     func testProximityRequiresLeavingAndDwelling() {

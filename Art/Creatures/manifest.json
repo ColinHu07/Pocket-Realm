@@ -1,17 +1,23 @@
 {
   "Mosskip": {
-    "triangles": 13416,
-    "meshes": 28,
-    "heightMeters": 0.474
+    "triangles": 51274,
+    "meshes": 15,
+    "heightMeters": 0.481,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true
   },
   "Glimlo": {
-    "triangles": 26512,
-    "meshes": 42,
-    "heightMeters": 0.463
+    "triangles": 69066,
+    "meshes": 16,
+    "heightMeters": 0.456,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true
   },
   "Pebblin": {
-    "triangles": 24436,
-    "meshes": 27,
-    "heightMeters": 0.406
+    "triangles": 90182,
+    "meshes": 10,
+    "heightMeters": 0.401,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true
   }
 }

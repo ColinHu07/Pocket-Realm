@@ -3,6 +3,8 @@ import Foundation
 struct ScanPhoto: Encodable {
     let jpeg: String
     let yaw: Double
+    let position: [Float]
+    let forward: [Float]
 }
 
 struct AdventureClient {
@@ -10,6 +12,8 @@ struct AdventureClient {
         let candidates: [RoomCandidate]
         let photos: [ScanPhoto]
         let friend: RealmFriend
+        let planningVersion = 2
+        let roomContext: RoomScanContext
     }
     static func endpoint(_ address: String) throws -> URL {
         guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -18,12 +22,12 @@ struct AdventureClient {
               url.query == nil, url.fragment == nil else { throw PlanError.invalidURL }
         return url.appendingPathComponent("plan")
     }
-    static func plan(address: String, candidates: [RoomCandidate], photos: [ScanPhoto], friend: RealmFriend) async throws -> EncounterPlan {
+    static func plan(address: String, candidates: [RoomCandidate], photos: [ScanPhoto], friend: RealmFriend, context: RoomScanContext) async throws -> EncounterPlan {
         var request = URLRequest(url: try endpoint(address))
         request.httpMethod = "POST"
-        request.timeoutInterval = 45
+        request.timeoutInterval = 75
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(Request(candidates: candidates, photos: photos, friend: friend))
+        request.httpBody = try JSONEncoder().encode(Request(candidates: candidates, photos: photos, friend: friend, roomContext: context))
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             struct Failure: Decodable { let error: String }
@@ -31,7 +35,7 @@ struct AdventureClient {
             throw PlanError.server(message)
         }
         let plan = try JSONDecoder().decode(EncounterPlan.self, from: data)
-        try plan.validate(against: candidates)
+        try plan.validateRoom(against: candidates, surfaces: context.surfaces)
         return plan
     }
 }

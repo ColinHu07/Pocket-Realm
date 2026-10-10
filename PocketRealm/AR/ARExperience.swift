@@ -48,6 +48,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var questWorldAnchor: ARAnchor?
     private var keepsake: Entity?
     private var themeRoom: CapturedRoom?
+    private var roomContext: RoomScanContext?
     private var themeObserver: SIMD3<Float> = .zero
     private var jungle: ThemeFactory.Result?
     private var reactionTime: Double = -.infinity
@@ -73,7 +74,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     var inReach: Bool { anchor?.isAnchored == true && (distance ?? .infinity) <= 2 }
     var itemInReach: Bool { questAnchor?.isAnchored == true && (questDistance ?? .infinity) <= 1.3 }
     var objectiveDistance: Float? { phase == .questing ? questDistance : distance }
-    var canRetryPlan: Bool { !candidates.isEmpty && !requesting }
+    var canRetryPlan: Bool { !candidates.isEmpty && roomContext != nil && !photos.isEmpty && !requesting }
     var addressIsValid: Bool { (try? AdventureClient.endpoint(serverAddress)) != nil }
 
     override init() {
@@ -200,7 +201,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let camera = position(frame.camera.transform)
         themeRoom = room
         themeObserver = camera
-        applyTheme()
+        let context = ThemeFactory.context(for: room)
         for object in room.objects.filter(Self.eligible).prefix(24) {
             let id = object.identifier.uuidString
             let transform = spawnTransform(for: object, fallbackCamera: camera)
@@ -217,6 +218,11 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             planningError = "No clear furniture locations yet. Scan again and spend a few seconds looking at a cabinet, table, chair, sofa, or bed."
             return
         }
+        guard context.surfaces.contains(where: { $0.kind == .floor || $0.kind == .wall }), !photos.isEmpty else {
+            planningError = "The scan needs clearer room surfaces and snapshots. Scan again, including the floor and walls."
+            return
+        }
+        roomContext = context
         requestPlan()
     }
 
@@ -249,7 +255,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     func requestPlan() {
-        guard canRetryPlan, phase == .planning else { return }
+        guard canRetryPlan, phase == .planning, let context = roomContext else { return }
         guard addressIsValid else { connectionPresented = true; return }
         requesting = true
         planningError = nil
@@ -260,7 +266,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let selectedFriend = friend
         planTask = Task { [weak self] in
             do {
-                let selected = try await AdventureClient.plan(address: address, candidates: input, photos: images, friend: selectedFriend)
+                let selected = try await AdventureClient.plan(address: address, candidates: input, photos: images, friend: selectedFriend, context: context)
                 guard !Task.isCancelled, let self, self.generation == token, self.phase == .planning else { return }
                 self.requesting = false
                 self.install(selected)
@@ -273,22 +279,33 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     private func install(_ selected: EncounterPlan) {
-        guard let transform = spawnTransforms[selected.objectID] else { planningError = PlanError.invalidPlan.localizedDescription; return }
+        guard spawnTransforms[selected.objectID] != nil, let room = selected.room,
+              spawnTransforms[room.keepsakeObjectID] != nil else {
+            planningError = PlanError.invalidPlan.localizedDescription
+            return
+        }
+        plan = selected
+        selectedCategory = candidates.first(where: { $0.id == selected.objectID })?.category ?? "furniture"
+        applyTheme()
+        game.acceptPlan()
+        photos = []
+    }
+
+    func beginExploring() {
+        guard phase == .ready, trackingReady, let plan, let room = plan.room,
+              let transform = spawnTransforms[plan.objectID] else { return }
         do { preparedCreature = try CreatureFactory.make(friend) }
-        catch { planningError = "Couldn't load \(friend.name): \(error.localizedDescription)"; return }
-        let arAnchor = ARAnchor(name: selected.objectID, transform: transform)
+        catch { issue = "Couldn't load \(friend.name): \(error.localizedDescription)"; return }
+        let arAnchor = ARAnchor(name: plan.objectID, transform: transform)
         arView.session.add(anchor: arAnchor)
         let entity = AnchorEntity(anchor: arAnchor)
         // Empty anchor: no marker or animal gives away the location before proximity succeeds.
         arView.scene.addAnchor(entity)
         anchor = entity
         worldAnchor = arAnchor
-        plan = selected
-        selectedCategory = candidates.first(where: { $0.id == selected.objectID })?.category ?? "furniture"
-        prepareQuest(friendID: selected.objectID)
+        prepareQuest(friendID: plan.objectID, keepsakeID: room.keepsakeObjectID)
         proximity = ProximityGate()
-        game.acceptPlan()
-        photos = []
+        game.beginExploring()
     }
 
     private func reveal() {
@@ -320,12 +337,19 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             themeMessage = "Your room, just as it is."
             return
         }
-        guard let themeRoom else {
-            themeMessage = "Your jungle will grow after the 360° room scan. Include the floor and walls."
+        guard let themeRoom, let understanding = plan?.room else {
+            themeMessage = "Gemini will plan your Jungle after the 360° scan. Include the floor and walls."
             return
         }
         do {
-            if jungle == nil { jungle = try ThemeFactory.jungle(in: themeRoom, observer: themeObserver) }
+            if jungle == nil {
+                let questPositions = [plan?.objectID, understanding.keepsakeObjectID].compactMap { id -> SIMD3<Float>? in
+                    guard let id, let transform = spawnTransforms[id] else { return nil }
+                    return position(transform)
+                }
+                jungle = try ThemeFactory.jungle(in: themeRoom, observer: themeObserver,
+                    plan: understanding.jungle, questPositions: questPositions)
+            }
             if let jungle {
                 if jungle.hasContent {
                     arView.environment.sceneUnderstanding.options.insert(.occlusion)
@@ -342,12 +366,13 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         if let jungle { arView.scene.removeAnchor(jungle.anchor) }
         jungle = nil
         themeRoom = nil
+        roomContext = nil
         arView.environment.sceneUnderstanding.options.remove(.occlusion)
-        themeMessage = theme == .jungle ? "Your jungle will grow after the 360° room scan. Include the floor and walls." : "Your room, just as it is."
+        themeMessage = theme == .jungle ? "Gemini will plan your Jungle after the 360° scan. Include the floor and walls." : "Your room, just as it is."
     }
 
-    private func prepareQuest(friendID: String) {
-        guard let location = QuestLocation.choose(from: candidates, friendID: friendID),
+    private func prepareQuest(friendID: String, keepsakeID: String) {
+        guard let location = candidates.first(where: { $0.id == keepsakeID }),
               var transform = spawnTransforms[location.id] else { return }
         // Reuse a scanned, observed furniture face, never a guessed point behind furniture.
         // In a one-location room the item floats just above the friend, reachable in place.
@@ -523,7 +548,10 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = imageContext.createCGImage(small, from: small.extent),
               let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.65) else { return }
-        photos.append(ScanPhoto(jpeg: jpeg.base64EncodedString(), yaw: yaw))
+        let camera = position(frame.camera.transform)
+        let forward = -frame.camera.transform.columns.2
+        photos.append(ScanPhoto(jpeg: jpeg.base64EncodedString(), yaw: yaw,
+            position: [camera.x, camera.y, camera.z], forward: [forward.x, forward.y, forward.z]))
         photoSectors.insert(sector)
     }
 

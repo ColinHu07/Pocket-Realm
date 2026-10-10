@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        E30000000000000000000001 /* RoomUnderstanding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30000000000000000000002; };
         D20000000000000000000001 /* RealmTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002; };
         D20000000000000000000003 /* ThemeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000004; };
 		167DFF409EC67A4321859087 /* PocketRealm/Views/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72054DD03E648985C82E6683 /* PocketRealm/Views/ContentView.swift */; };
@@ -21,6 +22,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        E30000000000000000000002 /* RoomUnderstanding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RoomUnderstanding.swift; sourceTree = SOURCE_ROOT; };
         D20000000000000000000002 /* RealmTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RealmTheme.swift; sourceTree = SOURCE_ROOT; };
         D20000000000000000000004 /* ThemeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/ThemeFactory.swift; sourceTree = SOURCE_ROOT; };
 		3352FF030AA5952C955DCBD3 /* PocketRealm/AR/ARExperience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/ARExperience.swift; sourceTree = SOURCE_ROOT; };
@@ -49,6 +51,7 @@
 		B28B7AF69320201D1CF206EB = {
 			isa = PBXGroup;
 			children = (
+                E30000000000000000000002,
                 D20000000000000000000002,
                 D20000000000000000000004,
                 C10000000000000000000002,
@@ -135,6 +138,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                E30000000000000000000001,
                 D20000000000000000000001,
                 D20000000000000000000003,
                 C10000000000000000000001,

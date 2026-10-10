@@ -1,6 +1,6 @@
 import Foundation
 
-enum RealmTheme: String, CaseIterable, Identifiable {
+enum RealmTheme: String, Codable, CaseIterable, Identifiable {
     case original, jungle
 
     var id: String { rawValue }

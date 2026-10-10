@@ -32,9 +32,9 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     brand
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Tiny friends.\nReal adventures.")
+                        Text("Your room.\nA world of its own.")
                             .font(.system(size: 38, weight: .semibold, design: .rounded)).tracking(-1.5).foregroundStyle(paper)
-                        Text("Pick a friend. Find them in your room. Make their day a little more magical.")
+                        Text("Scan your space. Let Gemini plan its transformation, then explore with a little friend.")
                             .font(.system(size: 16)).foregroundStyle(paper.opacity(0.65)).lineSpacing(3)
                     }
                     friendPicker
@@ -67,8 +67,9 @@ struct ContentView: View {
                     }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 24))
                     VStack(spacing: 16) {
-                        step("01", "Take a 360° look around", "A slow sweep maps your real furniture.")
-                        step("02", "Follow a little curiosity", "Meet \(experience.friend.name), then help find a missing keepsake.")
+                        step("01", "Take a 360° look around", "A slow sweep captures your floor, walls, and furniture.")
+                        step("02", "Understand, then transform", "Gemini plans your Jungle and quest locations from the scan.")
+                        step("03", "Explore when you're ready", "Review your room plan, then meet \(experience.friend.name).")
                     }.padding(20).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 22))
                     Spacer(minLength: 0)
                 }.padding(24).frame(minHeight: geometry.size.height)
@@ -76,7 +77,7 @@ struct ContentView: View {
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 12) {
-                action("Find \(experience.friend.name)", icon: "viewfinder") { experience.start() }
+                action("Scan my room", icon: "viewfinder") { experience.start() }
                 Text("Room layout and up to 6 snapshots are sent to your server and Gemini.")
                     .font(.system(size: 10)).foregroundStyle(paper.opacity(0.55)).multilineTextAlignment(.center)
                 Button("Connection settings") { experience.connectionPresented = true }
@@ -168,12 +169,14 @@ struct ContentView: View {
     private var questCard: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Text(experience.phase == .complete ? "FRIENDSHIP EARNED" : (experience.phase == .questing || experience.phase == .returning ? "A LITTLE FAVOR" : "A NEW FRIEND")).tracking(2)
+                Text(cardLabel).tracking(2)
                 Spacer()
                 Image(systemName: experience.phase == .complete ? "checkmark.seal.fill" : "sparkle")
             }.font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(lime)
             Text(title).font(.system(size: 27, weight: .semibold, design: .rounded)).foregroundStyle(paper)
-            Text(detail).font(.system(size: 15)).foregroundStyle(paper.opacity(0.72)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            if experience.phase != .ready {
+                Text(detail).font(.system(size: 15)).foregroundStyle(paper.opacity(0.72)).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            }
             switch experience.phase {
             case .scanning:
                 ProgressView(value: experience.coverage.fraction).tint(lime)
@@ -195,9 +198,28 @@ struct ContentView: View {
                     Button("Connection settings") { experience.connectionPresented = true }
                         .foregroundStyle(lime)
                 } else {
-                    HStack(spacing: 12) { ProgressView().tint(lime); Text(experience.requesting ? "Gemini is choosing a hiding spot…" : "Finishing the room model…") }
+                    HStack(spacing: 12) { ProgressView().tint(lime); Text(experience.requesting ? "Gemini is understanding your room…" : "Finishing the room model…") }
                         .font(.subheadline).foregroundStyle(paper.opacity(0.7))
                 }
+            case .ready:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(detail).foregroundStyle(paper.opacity(0.8))
+                        if let room = experience.plan?.room {
+                            Label("Jungle plan", systemImage: "leaf.fill").foregroundStyle(lime)
+                            Text(room.designNote).foregroundStyle(paper.opacity(0.7))
+                            DisclosureGroup("Quest locations") {
+                                Text(room.questReason).foregroundStyle(paper.opacity(0.7)).padding(.top, 8)
+                            }.tint(lime).foregroundStyle(lime)
+                        }
+                    }.font(.system(size: 14)).lineSpacing(3).frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 210).accessibilityIdentifier("roomPlanReview")
+                if experience.theme == .jungle { footnote(experience.themeMessage) }
+                else {
+                    Button("Preview the Jungle") { experience.selectTheme(.jungle) }
+                        .font(.subheadline).foregroundStyle(lime)
+                }
+                action("Start exploring", icon: "figure.walk", enabled: experience.trackingReady, action: experience.beginExploring)
             case .exploring:
                 Label(experience.proximity.armed ? "Walk closer. \(experience.friend.name) appears automatically." : "Step back a little, then explore.", systemImage: "figure.walk")
                     .font(.subheadline).foregroundStyle(lime)
@@ -225,10 +247,20 @@ struct ContentView: View {
             .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12), lineWidth: 1))
     }
 
+    private var cardLabel: String {
+        switch experience.phase {
+        case .scanning, .planning, .ready: return "YOUR ROOM COMES FIRST"
+        case .questing, .returning: return "A LITTLE FAVOR"
+        case .complete: return "FRIENDSHIP EARNED"
+        default: return "A NEW FRIEND"
+        }
+    }
+
     private var title: String {
         switch experience.phase {
         case .scanning: return "A little look around."
-        case .planning: return "Finding the magic."
+        case .planning: return "Making sense of your space."
+        case .ready: return "Your room, understood."
         case .exploring: return "Someone's hiding."
         case .revealed: return "Meet \(experience.friend.name)."
         case .questing: return experience.friend.questTitle
@@ -240,7 +272,8 @@ struct ContentView: View {
     private var detail: String {
         switch experience.phase {
         case .scanning: return experience.scanInstruction
-        case .planning: return "Your room becomes the map. Gemini picks one real location for your first encounter."
+        case .planning: return "Gemini uses the room layout and snapshots to plan the Jungle and both quest locations."
+        case .ready: return experience.plan?.room?.summary ?? "Your room plan is ready."
         case .exploring: return experience.plan?.hint ?? "Explore the furniture around you."
         case .revealed: return experience.dialogue ?? experience.friend.personality
         case .questing: return experience.friend.questRequest
@@ -259,7 +292,7 @@ struct ContentView: View {
                         .font(.footnote)
                 }
                 Section("What gets sent") {
-                    Text("After your scan, we send detected furniture and up to six room snapshots to this server, which asks Gemini where your chosen friend should hide. The Gemini key stays on the server.")
+                    Text("After your scan, we send measured floors, walls, openings, furniture, and up to six room snapshots to this server. Gemini interprets the space and plans your Jungle, friend location, and keepsake location. The Gemini key stays on the server.")
                         .font(.footnote)
                 }
             }
@@ -274,7 +307,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("A new world.\nYour own room.")
                         .font(.system(size: 32, weight: .semibold, design: .rounded)).tracking(-1).foregroundStyle(paper)
-                    Text("Pick a preset. Your 360° scan fits it to the floor and walls around you.")
+                    Text("Pick a theme. Gemini reads your 360° scan and plans how it fits your room's floor and walls.")
                         .font(.system(size: 15)).foregroundStyle(paper.opacity(0.65)).lineSpacing(3)
                     ForEach(RealmTheme.allCases) { theme in
                         Button { experience.selectTheme(theme) } label: {

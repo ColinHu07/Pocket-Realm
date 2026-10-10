@@ -12,8 +12,8 @@ enum ThemeFactory {
         var hasContent: Bool { floorCount > 0 || vineCount > 0 }
         var message: String {
             if floorCount == 0 { return "No clear floor detected. Scan again and include more of the floor." }
-            if vineCount == 0 { return "Your jungle floor is ready. Include more walls next scan for hanging vines." }
-            return "Your jungle is growing from this room's floor and walls."
+            if vineCount == 0 { return "Your jungle floor follows Gemini's room plan." }
+            return "Gemini's Jungle plan is fitted to this room's floor and walls."
         }
     }
 
@@ -27,7 +27,43 @@ enum ThemeFactory {
         }
     }
 
-    static func jungle(in room: CapturedRoom, observer: SIMD3<Float>) throws -> Result {
+    /// Only advertise surfaces the renderer can decorate. All geometry shares the ARSession's origin.
+    static func context(for room: CapturedRoom) -> RoomScanContext {
+        func measured(_ surface: CapturedRoom.Surface, kind: RoomSurfaceContext.Kind) -> RoomSurfaceContext? {
+            let corners = surfaceCorners(surface).map { world($0, surface.transform) }
+            let normal = SIMD3(surface.transform.columns.2.x, surface.transform.columns.2.y, surface.transform.columns.2.z)
+            let center = world(.zero, surface.transform)
+            let vectors = corners + [surface.dimensions, center, normal]
+            guard (3...256).contains(corners.count), vectors.allSatisfy({ p in
+                [p.x, p.y, p.z].allSatisfy { $0.isFinite && abs($0) <= 100 }
+            }), simd_length_squared(normal) > 0.5 else { return nil }
+            if kind == .floor {
+                guard let low = corners.map(\.y).min(), let high = corners.map(\.y).max(), high - low < 0.08,
+                      !ThemePolygon(corners.map { SIMD2($0.x, $0.z) }).triangles().isEmpty else { return nil }
+            }
+            func values(_ p: SIMD3<Float>) -> [Float] { [p.x, p.y, p.z] }
+            return RoomSurfaceContext(id: surface.identifier.uuidString, kind: kind,
+                dimensions: values(surface.dimensions), position: values(center),
+                corners: corners.map(values), normal: values(simd_normalize(normal)))
+        }
+        let floors = room.floors.sorted { $0.identifier.uuidString < $1.identifier.uuidString }.prefix(8)
+            .filter { $0.confidence != .low }.compactMap { measured($0, kind: .floor) }
+        let walls = room.walls.sorted { $0.identifier.uuidString < $1.identifier.uuidString }.prefix(24)
+            .filter { $0.confidence != .low && $0.curve == nil && $0.dimensions.x > 0.3 && $0.dimensions.y > 0.5 }
+            .compactMap { measured($0, kind: .wall) }
+        let apertures = (room.doors.compactMap { measured($0, kind: .door) }
+            + room.openings.compactMap { measured($0, kind: .opening) }
+            + room.windows.compactMap { measured($0, kind: .window) }).prefix(32)
+        let obstacles = room.objects.prefix(64).map {
+            let p = world(.zero, $0.transform)
+            return RoomObstacleContext(category: String(describing: $0.category),
+                dimensions: [$0.dimensions.x, $0.dimensions.y, $0.dimensions.z], position: [p.x, p.y, p.z])
+        }
+        return RoomScanContext(surfaces: floors + walls + Array(apertures), obstacles: obstacles)
+    }
+
+    static func jungle(in room: CapturedRoom, observer: SIMD3<Float>, plan: JunglePlan,
+                       questPositions: [SIMD3<Float>]) throws -> Result {
         let anchor = AnchorEntity(world: .zero)
         anchor.name = "Jungle theme"
         var mesh = GardenMesh()
@@ -45,6 +81,7 @@ enum ThemeFactory {
 
         for floor in room.floors.sorted(by: { $0.identifier.uuidString < $1.identifier.uuidString }).prefix(8)
             where floor.confidence != .low {
+            guard let treatment = plan.floors.first(where: { $0.surfaceID == floor.identifier.uuidString }) else { continue }
             // RoomPlan surface corners are local XY; the surface transform places them in the room.
             let corners = surfaceCorners(floor).map { world($0, floor.transform) }
             guard let low = corners.map(\.y).min(), let high = corners.map(\.y).max(), high - low < 0.08 else { continue }
@@ -62,10 +99,11 @@ enum ThemeFactory {
             floorCount += 1
             let seed = ThemeRandom.seed(floor.identifier.uuidString)
             var random = ThemeRandom(seed: seed)
-            let points = polygon.scatter(seed: seed, limit: plantBudget)
+            let points = polygon.scatter(seed: seed, spacing: treatment.growth.spacing, limit: plantBudget)
             plantBudget -= points.count
             for p in points {
                 let base = SIMD3(p.x, y + 0.004, p.y)
+                guard !questPositions.contains(where: { simd_distance(p, SIMD2($0.x, $0.z)) < 0.55 }) else { continue }
                 // Check at plant height and just above the floor, including furniture not used by quests.
                 guard !furniture.contains(where: {
                     $0.contains(base + SIMD3(0, 0.12, 0), padding: 0.12)
@@ -92,11 +130,11 @@ enum ThemeFactory {
                                   material: random.unit() > 0.5 ? 2 : 3)
                 }
                 let edgeDistance = polygon.distanceToEdge(p)
-                if flowerBudget > 0, random.unit() < (edgeDistance < 0.8 ? 0.22 : 0.04) {
+                if flowerBudget > 0, random.unit() < treatment.growth.flowerChance * (edgeDistance < 0.8 ? 1 : 0.25) {
                     flower(at: base, height: 0.19 + random.unit() * 0.13,
                            color: 5 + Int(random.unit() * 3), mesh: &mesh)
                     flowerBudget -= 1
-                } else if fernBudget > 0, edgeDistance > 0.34, edgeDistance < 0.8, random.unit() < 0.3,
+                } else if fernBudget > 0, edgeDistance > 0.34, edgeDistance < 0.8, random.unit() < treatment.growth.fernChance,
                           !furniture.contains(where: { $0.contains(base + SIMD3(0, 0.15, 0), padding: 0.35) }),
                           !doorways.contains(where: { $0.contains(base + SIMD3(0, 0.3, 0), padding: 0.35) }) {
                     fern(at: base, angle: random.unit() * 2 * .pi, mesh: &mesh)
@@ -108,6 +146,8 @@ enum ThemeFactory {
         var vineCount = 0
         for wall in room.walls.sorted(by: { $0.identifier.uuidString < $1.identifier.uuidString }).prefix(24)
             where wall.confidence != .low && wall.curve == nil {
+            guard let treatment = plan.walls.first(where: { $0.surfaceID == wall.identifier.uuidString }),
+                  treatment.vines != .none else { continue }
             guard wall.dimensions.x.isFinite, wall.dimensions.y.isFinite,
                   wall.dimensions.x > 0.3, wall.dimensions.y > 0.5 else { continue }
             let polygon = ThemePolygon(surfaceCorners(wall).map { SIMD2($0.x, $0.y) })
@@ -115,12 +155,12 @@ enum ThemeFactory {
             let side: Float = localObserver.z >= 0 ? 1 : -1
             let width = min(wall.dimensions.x, 20)
             let height = min(wall.dimensions.y, 5)
-            let strands = min(9, max(1, Int(width / 0.7)))
+            let strands = min(9, max(1, Int(width / treatment.vines.spacing)))
             var random = ThemeRandom(seed: ThemeRandom.seed(wall.identifier.uuidString))
             for index in 0..<strands where vineCount < 60 {
                 let x = -width / 2 + (Float(index) + 0.5) * width / Float(strands)
                 let start = height / 2 - 0.12
-                let length = min(height - 0.3, 0.65 + random.unit() * 1.1)
+                let length = min(height - 0.3, treatment.vines.length * (0.55 + random.unit() * 0.45))
                 let phase = random.unit() * 6
                 var previous: SIMD3<Float>?
                 var drew = false
@@ -150,7 +190,7 @@ enum ThemeFactory {
                 if drew { vineCount += 1 }
             }
         }
-        if let entity = try mesh.entity() { anchor.addChild(entity) }
+        if let entity = try mesh.entity(palette: plan.palette) { anchor.addChild(entity) }
         return Result(anchor: anchor, floorCount: floorCount, vineCount: vineCount)
     }
 
@@ -243,8 +283,10 @@ private struct GardenMesh {
         }
     }
 
-    func entity() throws -> ModelEntity? {
-        let colors: [UInt32] = [0x244C32, 0x38613B, 0x508E42, 0x88B951, 0x355B32, 0xF078AC, 0xF5A353, 0xBC91EA, 0xFFE193]
+    func entity(palette: JunglePlan.Palette) throws -> ModelEntity? {
+        let colors: [UInt32] = palette == .forest
+            ? [0x244C32, 0x38613B, 0x508E42, 0x88B951, 0x355B32, 0xF078AC, 0xF5A353, 0xBC91EA, 0xFFE193]
+            : [0x245C3E, 0x3D784A, 0x30A569, 0xB1D858, 0x347046, 0xFF696B, 0xFFC04C, 0xDA82DB, 0xFFF2B0]
         let moss = try mossTexture()
         let materials: [PhysicallyBasedMaterial] = colors.enumerated().map { index, hex in
             let color = UIColor(red: CGFloat((hex >> 16) & 255) / 255, green: CGFloat((hex >> 8) & 255) / 255,

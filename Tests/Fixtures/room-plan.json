@@ -1,0 +1,36 @@
+{
+  "scan": {
+    "planningVersion": 2,
+    "friend": "Mosskip",
+    "candidates": [
+      {"id": "cabinet-1", "category": "storage", "dimensions": [1, 1.5, 0.5], "position": [1, 0.5, -1], "distance": 2.5},
+      {"id": "table-1", "category": "table", "dimensions": [1, 0.8, 1], "position": [-1, 0.6, 0], "distance": 1}
+    ],
+    "photos": [{"jpeg": "/9j/2Q==", "yaw": 0, "position": [0, 1.6, 0], "forward": [0, 0, 1]}],
+    "roomContext": {
+      "surfaces": [
+        {"id": "floor-1", "kind": "floor", "dimensions": [4, 4, 0], "position": [0, 0, 0], "normal": [0, 1, 0], "corners": [[-2, 0, -2], [2, 0, -2], [2, 0, 2], [-2, 0, 2]]},
+        {"id": "wall-1", "kind": "wall", "dimensions": [4, 2.8, 0], "position": [0, 1.4, -2], "normal": [0, 0, 1], "corners": [[-2, 0, -2], [2, 0, -2], [2, 2.8, -2], [-2, 2.8, -2]]},
+        {"id": "wall-2", "kind": "wall", "dimensions": [4, 2.8, 0], "position": [2, 1.4, 0], "normal": [-1, 0, 0], "corners": [[2, 0, -2], [2, 0, 2], [2, 2.8, 2], [2, 2.8, -2]]},
+        {"id": "door-1", "kind": "door", "dimensions": [0.9, 2.1, 0], "position": [0, 1.05, -2], "normal": [0, 0, 1], "corners": [[-0.45, 0, -2], [0.45, 0, -2], [0.45, 2.1, -2], [-0.45, 2.1, -2]]}
+      ],
+      "obstacles": [{"category": "storage", "dimensions": [1, 1.5, 0.5], "position": [1, 0.75, -1.6]}]
+    }
+  },
+  "plan": {
+    "objectID": "cabinet-1",
+    "hint": "Look by the cabinet for a rustling leaf.",
+    "greeting": "You found me! I'm Mosskip.",
+    "room": {
+      "summary": "The measured room has a cabinet and table, with a doorway along one wall. Lighting is uncertain in these test snapshots.",
+      "designNote": "A flower meadow covers the floor, with light vines near the doorway and fuller vines on the other wall.",
+      "keepsakeObjectID": "table-1",
+      "questReason": "Meet Mosskip beside the cabinet, then look for the keepsake by the nearby table.",
+      "jungle": {
+        "palette": "tropical",
+        "floors": [{"surfaceID": "floor-1", "growth": "meadow"}],
+        "walls": [{"surfaceID": "wall-1", "vines": "light"}, {"surfaceID": "wall-2", "vines": "lush"}]
+      }
+    }
+  }
+}
