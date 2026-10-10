@@ -24,28 +24,16 @@ struct RoomScanContext: Codable {
 
 struct JunglePlan: Codable {
     enum Palette: String, Codable { case forest, tropical }
-    enum Growth: String, Codable {
-        case moss, meadow, ferns
-        var spacing: Float { self == .moss ? 0.36 : 0.25 }
-        var flowerChance: Float { self == .meadow ? 0.32 : (self == .ferns ? 0.04 : 0.07) }
-        var fernChance: Float { self == .ferns ? 0.65 : 0.15 }
-    }
     enum Vines: String, Codable {
         case none, light, lush
-        var spacing: Float { self == .lush ? 0.7 : 1.4 }
-        var length: Float { self == .lush ? 1.75 : 0.9 }
     }
-    struct Floor: Codable { let surfaceID: String; let growth: Growth }
     struct Wall: Codable { let surfaceID: String; let vines: Vines }
     let palette: Palette
-    let floors: [Floor]
     let walls: [Wall]
 
     func validate(surfaces: [RoomSurfaceContext]) throws {
-        let floorIDs = surfaces.filter { $0.kind == .floor }.map(\.id)
         let wallIDs = surfaces.filter { $0.kind == .wall }.map(\.id)
-        guard floors.count == floorIDs.count, walls.count == wallIDs.count,
-              Set(floors.map(\.surfaceID)) == Set(floorIDs),
+        guard walls.count == wallIDs.count,
               Set(walls.map(\.surfaceID)) == Set(wallIDs) else { throw PlanError.invalidPlan }
     }
 }

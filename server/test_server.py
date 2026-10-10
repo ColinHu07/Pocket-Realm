@@ -5,11 +5,12 @@ import os
 from pathlib import Path
 import threading
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from server import validate_friend, FRIENDS, Handler, ThreadingHTTPServer, generate_plan, make_request, parse_response, validate_scan, validate_room_context
+from server import validate_friend, FRIENDS, Handler, ThreadingHTTPServer, RequestTrace, PROVIDER_BUDGET_SECONDS, generate_plan, make_request, parse_response, validate_scan, validate_room_context
 
 
 SCAN = {"candidates": [
@@ -89,13 +90,23 @@ class RoomPlanningTests(unittest.TestCase):
     def test_shared_contract_is_accepted(self):
         self.assertEqual(parse_response(response(self.plan), self.scan["candidates"], self.context), self.plan)
 
+    def test_wall_theme_does_not_require_a_floor_and_rejects_old_planning_version(self):
+        scan = copy.deepcopy(self.scan)
+        scan["roomContext"]["surfaces"] = [s for s in scan["roomContext"]["surfaces"] if s["kind"] != "floor"]
+        context = validate_room_context(scan, scan["photos"])
+        self.assertEqual(parse_response(response(self.plan), scan["candidates"], context), self.plan)
+        scan["planningVersion"] = 2
+        with self.assertRaisesRegex(ValueError, "Update the app and server"):
+            validate_room_context(scan, scan["photos"])
+
     def test_room_schema_and_photos_are_grounded_in_measured_context(self):
         payload = make_request(*validate_scan(self.scan), context=self.context)
         schema = payload["response_format"]["schema"]
         self.assertIn("room", schema["required"])
         jungle = schema["properties"]["room"]["properties"]["jungle"]["properties"]
         self.assertEqual(jungle["walls"]["items"]["properties"]["surfaceID"]["enum"], ["wall-1", "wall-2"])
-        self.assertEqual(jungle["floors"]["minItems"], 1)
+        self.assertNotIn("floors", jungle)
+        self.assertIn("Leave all floors and furniture surfaces uncovered", payload["input"][0]["text"])
         self.assertEqual(jungle["walls"]["maxItems"], 2)
         self.assertIn(json.dumps(self.context), payload["input"][0]["text"])
         self.assertIn('"cameraPosition": [0, 1.6, 0]', payload["input"][1]["text"])
@@ -125,7 +136,7 @@ class RoomPlanningTests(unittest.TestCase):
             if change == "wrong_kind": jungle["walls"][0]["surfaceID"] = "door-1"
             if change == "duplicate": jungle["walls"][0]["surfaceID"] = "wall-2"
             if change == "missing": jungle["walls"].pop()
-            if change == "growth": jungle["floors"][0]["growth"] = "trees"
+            if change == "growth": jungle["floors"] = [{"surfaceID": "floor-1", "growth": "moss"}]
             if change == "vines": jungle["walls"][0]["vines"] = 100
             if change == "palette": jungle["palette"] = "lava"
             with self.subTest(change=change), self.assertRaises(ValueError):
@@ -155,8 +166,56 @@ class RoomPlanningTests(unittest.TestCase):
             request = provider.call_args.args[0]
             payload = json.loads(request.data)
             self.assertIn("room", payload["response_format"]["schema"]["required"])
-            self.assertEqual(provider.call_args.kwargs["timeout"], 60)
+            self.assertGreater(provider.call_args.kwargs["timeout"], 0)
+            self.assertLessEqual(provider.call_args.kwargs["timeout"], PROVIDER_BUDGET_SECONDS)
             self.assertNotIn("test-only-key", request.data.decode())
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key"})
+    def test_receipt_records_snapshot_count_and_provider_response_without_contents(self):
+        trace = RequestTrace()
+        output = io.StringIO()
+        with redirect_stdout(output), patch("server.urlopen", return_value=io.BytesIO(json.dumps(response(self.plan)).encode())):
+            generate_plan(self.scan, report=trace.update)
+        lines = [json.loads(line.removeprefix("Pocket Realm request ")) for line in output.getvalue().splitlines()]
+        self.assertEqual([line["stage"] for line in lines], ["scan_received", "sending_to_gemini", "gemini_responded", "plan_ready"])
+        self.assertEqual(trace.state["snapshotCount"], 1)
+        self.assertEqual(trace.state["surfaceCount"], 4)
+        for private_value in ("test-only-key", self.scan["photos"][0]["jpeg"], self.plan["room"]["summary"], "cabinet-1"):
+            self.assertNotIn(private_value, output.getvalue())
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key"})
+    def test_overload_retries_same_snapshots_then_returns_plan(self):
+        overloads = [HTTPError("https://provider.invalid", 503, "overloaded", {}, io.BytesIO()) for _ in range(2)]
+        events = []
+        with patch("server.urlopen", side_effect=overloads + [io.BytesIO(json.dumps(response(self.plan)).encode())]) as provider, patch("server.time.sleep") as sleep:
+            actual = generate_plan(self.scan, report=lambda stage, **counts: events.append((stage, counts)))
+        self.assertEqual(actual, self.plan)
+        self.assertEqual(provider.call_count, 3)
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+        self.assertEqual(len({call.args[0].data for call in provider.call_args_list}), 1)
+        self.assertEqual([stage for stage, _ in events].count("scan_received"), 1)
+        self.assertEqual([stage for stage, _ in events].count("retrying_gemini"), 2)
+        self.assertEqual(events[-1][0], "plan_ready")
+        self.assertTrue(all(error.fp.closed for error in overloads))
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key"})
+    def test_retries_stop_after_three_attempts_and_do_not_retry_auth_or_quota(self):
+        for status, expected in [(503, 3), (401, 1), (403, 1), (429, 1)]:
+            failures = [HTTPError("https://provider.invalid", status, "error", {}, io.BytesIO()) for _ in range(3)]
+            with self.subTest(status=status), patch("server.urlopen", side_effect=failures) as provider, patch("server.time.sleep"), self.assertRaises(HTTPError) as caught:
+                generate_plan(self.scan)
+            self.assertEqual(provider.call_count, expected)
+            for failure in failures:
+                failure.close()
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key"})
+    def test_retry_after_cannot_exceed_phone_request_budget(self):
+        failure = HTTPError("https://provider.invalid", 503, "overloaded", {"Retry-After": "120"}, io.BytesIO())
+        with patch("server.urlopen", side_effect=failure) as provider, patch("server.time.sleep") as sleep, self.assertRaises(HTTPError):
+            generate_plan(self.scan)
+        self.assertEqual(provider.call_count, 1)
+        sleep.assert_not_called()
+        failure.close()
 
 
 class HTTPTests(unittest.TestCase):
@@ -177,8 +236,10 @@ class HTTPTests(unittest.TestCase):
         with urlopen(self.base + "/health") as result:
             health = json.load(result)
             self.assertEqual(health["status"], "ready")
-            self.assertEqual(health["planningVersion"], 2)
+            self.assertEqual(health["planningVersion"], 3)
             self.assertIn("model", health)
+            self.assertIn("lastRequest", health)
+            self.assertEqual(result.headers["Cache-Control"], "no-store")
 
     def test_phone_request_round_trip(self):
         with patch("server.generate_plan", return_value=PLAN):
@@ -202,7 +263,7 @@ class HTTPTests(unittest.TestCase):
                 self.assertEqual(json.load(result), ROOM_FIXTURE["plan"])
 
     def test_provider_availability_errors_are_actionable_without_exposing_body(self):
-        for status, text in ((429, "quota"), (503, "temporarily unavailable")):
+        for status, text in ((429, "quota"), (503, "overloaded")):
             with self.subTest(status=status), patch("server.generate_plan", side_effect=HTTPError(
                 "https://provider.invalid", status, "provider failure", {}, io.BytesIO(b"private provider body")
             )), self.assertRaises(HTTPError) as caught:

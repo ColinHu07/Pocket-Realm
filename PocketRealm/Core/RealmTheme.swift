@@ -7,7 +7,7 @@ enum RealmTheme: String, Codable, CaseIterable, Identifiable {
     var name: String { self == .jungle ? "Jungle" : "Original" }
     var symbol: String { self == .jungle ? "leaf.fill" : "house.fill" }
     var subtitle: String {
-        self == .jungle ? "Mossy floors, leafy vines, and tropical blooms." : "Your familiar room, with a little magic."
+        self == .jungle ? "Leafy wall vines, hanging ferns, and soft blooms." : "Your familiar room, with a little magic."
     }
 }
 

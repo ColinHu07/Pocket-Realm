@@ -37,7 +37,7 @@ scutil --get LocalHostName
 
 If this prints `Colins-MacBook`, the app's **Connection settings** address is `http://Colins-MacBook.local:8787`. Put the phone and Mac on the same Wi-Fi and allow local-network access on the phone. Allow incoming Python connections in the Mac firewall if prompted. Alternatively, use an HTTPS deployment of this server. Enter the base address, without `/plan`.
 
-`GET /health` reports whether the server is running, whether a key is configured, the selected model, and `planningVersion: 2`. Restart the server after updating its code; the new app rejects an older quest-only response and asks you to restart. Health does not test the provider or reveal the key. The default server listens on the local network for hackathon testing, has no authentication, and should not be exposed to the public internet without authentication and rate limiting.
+`GET /health` reports whether the server is running, whether a key is configured, the selected model, and `planningVersion: 3`. Restart the server after updating its code; the new app rejects an older quest-only response and asks you to restart. Health does not test the provider or reveal the key. The default server listens on the local network for hackathon testing, has no authentication, and should not be exposed to the public internet without authentication and rate limiting.
 
 ## Run the iPhone app
 
@@ -45,9 +45,9 @@ If this prints `Colins-MacBook`, the app's **Connection settings** address is `h
 2. Select your development team under **Signing & Capabilities** if needed. Existing team settings are preserved.
 3. Connect your LiDAR-equipped iPhone Pro, select it as the destination, and Run. The app targets iOS 17+.
 4. Set the server address in **Connection settings**, choose a friend and theme, then tap **Scan my room** and allow camera access.
-5. Slowly turn all the way around. Include furniture, walls, and floor; move enough to see the objects clearly. The progress bar measures viewing directions, not geometric completeness.
+5. Slowly turn all the way around. Include visible walls and furniture; move enough to see the objects clearly. The progress bar measures viewing directions, not geometric completeness.
 6. The scan finishes automatically once all 24 direction sectors have been observed, at least one usable furniture location is detected, and at least 12 seconds have elapsed. If the sweep is complete but no locations appear, keep looking at a cabinet, table, sofa, chair, bed, or refrigerator.
-7. The app finalizes the room model and sends measured surface polygons, furniture, candidate locations, and up to six downsized snapshots labeled with camera positions and viewing directions. Gemini returns a room summary, Jungle treatments for each floor and wall, and friend/keepsake locations. A failed request retains the scan for retry; exploration does not begin with a partial plan.
+7. The app finalizes the room model and sends measured surface polygons, furniture, candidate locations, and up to six downsized snapshots labeled with camera positions and viewing directions. Gemini returns a room summary, Jungle treatments for each wall, and friend/keepsake locations. A failed request retains the scan for retry; exploration does not begin with a partial plan.
 8. Review **Your room, understood**. Jungle is applied now if selected; **Preview the Jungle** also lets you switch from Original. Expand **Quest locations** to inspect the placement reasoning. Tap **Start exploring**, then follow the clue. First be at least 1.8 m from the chosen spawn point, then approach within 1.4 m for 0.8 seconds. If the spot was next to you when scanning finished, step back first. Tracking must be normal and the anchor resolved.
 9. Your friend appears automatically and remains at that world position. Tap **Say hello** to hear the generated greeting and begin their quest. **Pet** triggers a happy wiggle.
 10. Find the glowing keepsake by the furniture chosen by Gemini. Approach within 1.3 m and tap **Collect**. Gemini must choose a different observed furniture face when available; with only one usable location, the item floats just above your friend.
@@ -60,7 +60,7 @@ Distances use the horizontal floor plane. The creature floats outside an observe
 
 - **RoomPlan:** detects floor/wall polygons, doors, windows, openings, furniture categories, and bounding boxes during the sweep.
 - **ARKit:** measures the room and maintains a single world coordinate frame throughout scanning, generation, and play.
-- **Gemini:** first interprets the room from geometry and snapshots. One response contains the room summary, Jungle palette, per-floor growth, per-wall vines, both quest locations, placement reasoning, clue, and greeting. It chooses only supplied surface/furniture IDs and cannot supply arbitrary coordinates.
+- **Gemini:** first interprets the room from geometry and snapshots. One response contains the room summary, Jungle palette, per-wall foliage, both quest locations, placement reasoning, clue, and greeting. It chooses only supplied surface/furniture IDs and cannot supply arbitrary coordinates.
 - **The app:** validates the complete plan, renders its treatments on measured surfaces, and displays the review. After **Start exploring**, it anchors the friend and keepsake outside observed furniture faces; the creature reveals when proximity conditions are met.
 
 The scan uses `RoomCaptureSession(arSession:)` with the same session as the RealityKit `ARView`. Scan completion calls `stop(pauseARSession: false)` and does not reset tracking. Results are finalized with `RoomBuilder`; the app uses native transforms directly, without exporting/reimporting USDZ.
@@ -71,15 +71,17 @@ Broad snapshots include camera positions and forward vectors in the same coordin
 
 ## Room themes
 
-Tap **Room theme** on the welcome screen, or **Theme** while scanning or playing, to choose **Original** or **Jungle**. Jungle adds a moss carpet, grass tufts, ferns, flowers, and hanging leafy vines. Your selection is saved on the device. The theme waits for Gemini's complete room plan; switching afterward reuses that plan and leaves the friend, quest, and badges in place.
+Tap **Room theme** on the welcome screen, or **Theme** while scanning or playing, to choose **Original** or **Jungle**. Jungle adds trailing vines, flowering vines, and fern clusters to visible wall patches. Floors and furniture remain uncovered. Your selection is saved on the device. The theme waits for Gemini's complete room plan; switching afterward reuses that plan and leaves the friend, quest, and badges in place.
 
-The 360° sweep supplies room geometry and snapshots to Gemini before rendering. Gemini chooses a forest or tropical palette, a moss/meadow/fern treatment for every usable floor, and no/light/lush vines for every usable wall. The app procedurally renders those choices in the same AR coordinate system. The Jungle plan is generated even when Original is selected, so toggling themes requires no additional request. This uses sampled camera frames rather than a recorded 360° video. Floor meshes follow concave room outlines; plant positions are repeatable for each scanned surface. Plants avoid detected furniture, doorways, and the two quest spots; vines avoid detected apertures. ARKit mesh occlusion lets real surfaces hide the virtual foliage. This remains approximate scan-based decoration, not a navigation map.
+The 360° sweep supplies measured geometry and up to six snapshots to Gemini. Gemini chooses a forest or tropical palette and no/light/lush foliage for every usable wall. Floor geometry remains room context but has no decoration treatment. The Jungle plan is generated even when Original is selected. This uses sampled frames rather than a recorded 360° video.
 
-Geometry is batched into one model with nine materials, with budgets of 900 grass clusters, 36 flowers, 28 ferns, and 60 vines. A seamless moss texture is generated locally and tiled at a consistent world scale. Low-confidence surfaces are skipped, as are curved walls. If the scan has no usable floor, the theme picker asks you to rescan with the floor in view; it does not invent a floor height. Returning to Original removes the theme, and rescanning or choosing another friend clears the old room decoration. Only the selected preset is saved between launches; the room scan itself is not persisted.
+The app retains up to 72 local camera observations (intrinsics, poses, and 64×48 depth samples when available). A botanical's entire bounding footprint must fit inside a measured wall polygon and observed camera views, with a 7 cm placement-check grid. Depth must support the wall within 20 cm, when available; low-confidence samples are rejected. Sightlines also reject intervening measured walls and furniture. Full model footprints keep a margin around doors, windows, openings, furniture, and quest spots. These are conservative, approximate checks; unclassified objects and scan errors can still affect placement. ARKit mesh occlusion supplements the placement checks. Foliage hides while tracking is limited or lost.
 
-On a LiDAR device, check an irregular room, furniture occlusion, doors/windows, and floor alignment; toggle Jungle → Original → Jungle during a quest, then rescan to check that old plants disappear. Also check background/resume tracking. The simulator can verify the picker, but cannot verify real-room placement or occlusion.
+The six original Blender USDZs have curved, smooth-shaded leaves with fine thickness, tubular stems, petal geometry, and 1024px leaf color/roughness textures. Each cluster is one model with two to four material batches. Runtime placement caps the scene at 20 clusters and a conservative 350,000-triangle budget, reusing model resources. Low-confidence and curved walls are skipped. Without a usable viewed wall patch, the app asks for more open wall space; it never invents floor coverage. Rescanning clears all geometry and local observation/depth data. Room scans are not persisted.
 
-Room-planning validation covers the shared Swift/server JSON contract, mandatory room review, unknown/duplicate/missing surface rejection, distinct quest locations, and the one-location case, alongside the geometry tests. The signed iPhone build passes. Live Gemini room analysis and physical placement/rendering still need an on-device scan with the updated server.
+On a LiDAR device, scan visible wall areas without deliberately aiming at the floor. Check doors, windows, furniture occlusion, and close-up leaf silhouettes; toggle Jungle → Original → Jungle to confirm stable placement. Rescan to check old foliage disappears, and test background/resume tracking. Studio previews verify the asset geometry and materials, but live room placement still needs a fresh scan on the updated app/server.
+
+Validation includes the shared Swift/server JSON contract, mandatory review, surface IDs, quest locations, camera frustums, depth occlusion, rotated furniture sightlines, and complete foliage footprints. `scripts/validate_jungle.swift` loads all six exported assets in RealityKit to verify orientation, scale, mesh count, and imported leaf textures.
 
 ## Reliability and privacy
 
@@ -92,6 +94,14 @@ Room-planning validation covers the shared Swift/server JSON contract, mandatory
 - The API key is only read by the server from `GEMINI_API_KEY`.
 
 ## Blender sources and exports
+
+- `Art/Jungle/PocketRealm-Jungle.blend`: editable botanicals with packed textures and a studio wall preview.
+- `Art/Jungle/jungle-botanicals.png`: rendered asset preview; this is not a screenshot of live AR.
+- `Art/Jungle/manifest.json`: triangle counts, dimensions, material counts, and sizes for each export.
+- `PocketRealm/Resources/Jungle/*.usdz`: Y-up botanicals, upper attachment at the origin, foliage extending down -Y and outward +Z. Xcode preserves the `Jungle` resource folder.
+- Rebuild with `/Applications/Blender.app/Contents/MacOS/Blender --background --python scripts/build_jungle.py`. Validate with `swift scripts/validate_jungle.swift "$PWD/PocketRealm/Resources/Jungle"`.
+
+
 
 - `Art/Creatures/PocketRealm-Friends.blend`: editable scene with all six named characters, materials, camera, and studio lighting. After the reaction-preview step below, frames 1–168 contain an animated demonstration with labeled cues. Each character has a separate parent; the lineup positions are for presentation only.
 - `Art/Creatures/*.glb`: individual portable models at the origin.

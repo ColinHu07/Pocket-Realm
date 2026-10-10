@@ -18,7 +18,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var interrupted = false
     @Published private(set) var coverage = ScanCoverage()
     @Published private(set) var objectCount = 0
-    @Published private(set) var scanInstruction = "Slowly turn all the way around. Include walls, furniture, and the floor."
+    @Published private(set) var scanInstruction = "Slowly turn all the way around. Include visible walls and furniture."
     @Published private(set) var planningError: String?
     @Published private(set) var plan: EncounterPlan?
     @Published private(set) var proximity = ProximityGate()
@@ -65,6 +65,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var spawnTransforms: [String: simd_float4x4] = [:]
     private var cameraPositions: [SIMD3<Float>] = []
     private var photos: [ScanPhoto] = []
+    private var wallObservations: [WallObservation] = []
+    private var wallObservationIndices: [Int: Int] = [:]
+    private var lastWallObservation: Double = -.infinity
     private var photoSectors: Set<Int> = []
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
     private let speech = AVSpeechSynthesizer()
@@ -105,6 +108,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal, .vertical]
         configuration.environmentTexturing = .automatic
+        if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
+            configuration.frameSemantics.insert(.sceneDepth)
+        }
         if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
             configuration.sceneReconstruction = .mesh
         }
@@ -149,7 +155,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         game = Adventure()
         scanStarted = elapsed
         trackingReady = false
-        scanInstruction = "Slowly turn all the way around. Include walls, furniture, and the floor."
+        scanInstruction = "Slowly turn all the way around. Include visible walls and furniture."
         configure(reset: true)
         // RoomPlan and gameplay use this exact ARSession and therefore the same coordinate origin.
         let session = RoomCaptureSession(arSession: arView.session)
@@ -219,7 +225,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             return
         }
         guard context.surfaces.contains(where: { $0.kind == .floor || $0.kind == .wall }), !photos.isEmpty else {
-            planningError = "The scan needs clearer room surfaces and snapshots. Scan again, including the floor and walls."
+            planningError = "The scan needs clearer room surfaces and snapshots. Scan again, including visible walls and furniture."
             return
         }
         roomContext = context
@@ -338,7 +344,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             return
         }
         guard let themeRoom, let understanding = plan?.room else {
-            themeMessage = "Gemini will plan your Jungle after the 360° scan. Include the floor and walls."
+            themeMessage = "Gemini will plan your Jungle after the 360° scan. Include visible walls and furniture."
             return
         }
         do {
@@ -348,10 +354,11 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                     return position(transform)
                 }
                 jungle = try ThemeFactory.jungle(in: themeRoom, observer: themeObserver,
-                    plan: understanding.jungle, questPositions: questPositions)
+                    plan: understanding.jungle, questPositions: questPositions, observations: wallObservations)
             }
             if let jungle {
                 if jungle.hasContent {
+                    jungle.anchor.isEnabled = trackingReady
                     arView.environment.sceneUnderstanding.options.insert(.occlusion)
                     arView.scene.addAnchor(jungle.anchor)
                 }
@@ -367,8 +374,11 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         jungle = nil
         themeRoom = nil
         roomContext = nil
+        wallObservations = []
+        wallObservationIndices = [:]
+        lastWallObservation = -.infinity
         arView.environment.sceneUnderstanding.options.remove(.occlusion)
-        themeMessage = theme == .jungle ? "Gemini will plan your Jungle after the 360° scan. Include the floor and walls." : "Your room, just as it is."
+        themeMessage = theme == .jungle ? "Gemini will plan your Jungle after the 360° scan. Include visible walls and furniture." : "Your room, just as it is."
     }
 
     private func prepareQuest(friendID: String, keepsakeID: String) {
@@ -509,6 +519,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         lastHUDUpdate = elapsed
         guard !suspended, !interrupted, !failed, let frame = arView.session.currentFrame else {
             trackingReady = false
+            jungle?.anchor.isEnabled = false
             _ = proximity.update(distance: .infinity, timestamp: elapsed, valid: false)
             return
         }
@@ -524,7 +535,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             default: trackingMessage = "Move your phone slowly to find surfaces."
             }
         }
+        jungle?.anchor.isEnabled = trackingReady
         if phase == .scanning, trackingReady {
+            recordWallObservation(frame)
             let forward = -frame.camera.transform.columns.2
             if simd_length(SIMD2<Float>(forward.x, forward.z)) > 0.4 {
                 let yaw = atan2(Double(forward.x), Double(forward.z))
@@ -563,6 +576,50 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         photoSectors.insert(sector)
     }
 
+    private func recordWallObservation(_ frame: ARFrame) {
+        guard frame.timestamp - lastWallObservation >= 0.4 else { return }
+        // Bound memory by direction, not elapsed time: a slow sweep must still include its final walls.
+        let forward = -frame.camera.transform.columns.2
+        let yaw = atan2(Double(forward.x), Double(forward.z))
+        let sector = min(23, max(0, Int((yaw + .pi) / (2 * .pi) * 24)))
+        let pitch = forward.y < -0.3 ? 0 : (forward.y > 0.3 ? 2 : 1)
+        let key = sector * 3 + pitch
+        var view = WallObservation(cameraTransform: frame.camera.transform, intrinsics: frame.camera.intrinsics,
+            imageSize: SIMD2(Float(frame.camera.imageResolution.width), Float(frame.camera.imageResolution.height)))
+        if let depth = frame.sceneDepth {
+            let buffer = depth.depthMap
+            CVPixelBufferLockBaseAddress(buffer, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+            let confidence = depth.confidenceMap
+            if let confidence { CVPixelBufferLockBaseAddress(confidence, .readOnly) }
+            defer { if let confidence { CVPixelBufferUnlockBaseAddress(confidence, .readOnly) } }
+            if let base = CVPixelBufferGetBaseAddress(buffer) {
+                let width = CVPixelBufferGetWidth(buffer), height = CVPixelBufferGetHeight(buffer)
+                view.depthWidth = 64; view.depthHeight = 48
+                for y in 0..<view.depthHeight {
+                    for x in 0..<view.depthWidth {
+                        let px = min(width - 1, Int((Float(x) + 0.5) / Float(view.depthWidth) * Float(width)))
+                        let py = min(height - 1, Int((Float(y) + 0.5) / Float(view.depthHeight) * Float(height)))
+                        var value = base.advanced(by: py * CVPixelBufferGetBytesPerRow(buffer)).assumingMemoryBound(to: Float.self)[px]
+                        if let confidence, let values = CVPixelBufferGetBaseAddress(confidence),
+                           CVPixelBufferGetWidth(confidence) == width, CVPixelBufferGetHeight(confidence) == height {
+                            let quality = values.advanced(by: py * CVPixelBufferGetBytesPerRow(confidence)).assumingMemoryBound(to: UInt8.self)[px]
+                            if quality == 0 { value = 0 }
+                        }
+                        view.depth.append(value)
+                    }
+                }
+            }
+        }
+        if let index = wallObservationIndices[key] {
+            wallObservations[index] = view
+        } else {
+            wallObservationIndices[key] = wallObservations.count
+            wallObservations.append(view)
+        }
+        lastWallObservation = frame.timestamp
+    }
+
     nonisolated func captureSession(_ session: RoomCaptureSession, didUpdate room: CapturedRoom) {
         Task { @MainActor in
             guard self.capture === session, self.phase == .scanning else { return }
@@ -578,7 +635,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             case .moveCloseToWall: self.scanInstruction = "Move closer and include the furniture along the wall."
             case .moveAwayFromWall: self.scanInstruction = "Take a step back to see more of the room."
             case .lowTexture: self.scanInstruction = "Include furniture and other textured surfaces."
-            default: self.scanInstruction = "Slowly turn all the way around. Include walls, furniture, and the floor."
+            default: self.scanInstruction = "Slowly turn all the way around. Include visible walls and furniture."
             }
         }
     }

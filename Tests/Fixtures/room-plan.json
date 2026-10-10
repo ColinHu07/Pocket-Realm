@@ -1,6 +1,6 @@
 {
   "scan": {
-    "planningVersion": 2,
+    "planningVersion": 3,
     "friend": "Mosskip",
     "candidates": [
       {"id": "cabinet-1", "category": "storage", "dimensions": [1, 1.5, 0.5], "position": [1, 0.5, -1], "distance": 2.5},
@@ -23,12 +23,11 @@
     "greeting": "You found me! I'm Mosskip.",
     "room": {
       "summary": "The measured room has a cabinet and table, with a doorway along one wall. Lighting is uncertain in these test snapshots.",
-      "designNote": "A flower meadow covers the floor, with light vines near the doorway and fuller vines on the other wall.",
+      "designNote": "Light flowering vines frame the clear wall beside the doorway; fuller leafy clusters decorate the visible patches on the other wall.",
       "keepsakeObjectID": "table-1",
       "questReason": "Meet Mosskip beside the cabinet, then look for the keepsake by the nearby table.",
       "jungle": {
         "palette": "tropical",
-        "floors": [{"surfaceID": "floor-1", "growth": "meadow"}],
         "walls": [{"surfaceID": "wall-1", "vines": "light"}, {"surfaceID": "wall-2", "vines": "lush"}]
       }
     }

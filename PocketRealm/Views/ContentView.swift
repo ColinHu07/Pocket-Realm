@@ -73,7 +73,7 @@ struct ContentView: View {
                     }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 24))
                     VStack(spacing: 16) {
-                        step("01", "Take a 360° look around", "A slow sweep captures your floor, walls, and furniture.")
+                        step("01", "Take a 360° look around", "A slow sweep captures visible walls and furniture.")
                         step("02", "Understand, then transform", "Gemini plans your Jungle and quest locations from the scan.")
                         step("03", "Explore when you're ready", "Review your room plan, then meet \(experience.friend.name).")
                     }.padding(20).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 22))
@@ -316,7 +316,7 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("A new world.\nYour own room.")
                         .font(.system(size: 32, weight: .semibold, design: .rounded)).tracking(-1).foregroundStyle(paper)
-                    Text("Pick a theme. Gemini reads your 360° scan and plans how it fits your room's floor and walls.")
+                    Text("Pick a theme. Gemini reads your 360° scan and plans vines and blooms for the visible walls.")
                         .font(.system(size: 15)).foregroundStyle(paper.opacity(0.65)).lineSpacing(3)
                     ForEach(RealmTheme.allCases) { theme in
                         Button { experience.selectTheme(theme) } label: {
@@ -403,7 +403,7 @@ private struct ThemePreview: View {
                     path.addLine(to: CGPoint(x: geometry.size.width, y: 125))
                     path.addLine(to: CGPoint(x: 0, y: 125))
                     path.closeSubpath()
-                }.fill(theme == .jungle ? Color(red: 0.25, green: 0.42, blue: 0.22) : Color.white.opacity(0.1))
+                }.fill(Color.white.opacity(0.1))
                 Image(systemName: "sofa.fill").font(.system(size: 58)).foregroundStyle(paper.opacity(0.4))
                     .position(x: geometry.size.width * 0.52, y: 74)
                 if theme == .jungle {
@@ -420,7 +420,7 @@ private struct ThemePreview: View {
                         Image(systemName: i % 3 == 0 ? "camera.macro" : "leaf.fill")
                             .font(.system(size: i % 3 == 0 ? 22 : 17))
                             .foregroundStyle(i % 3 == 0 ? Color(red: 1, green: 0.61, blue: 0.73) : lime.opacity(0.8))
-                            .position(x: geometry.size.width * (CGFloat(i) + 0.5) / 9, y: CGFloat(103 + (i % 2) * 10))
+                            .position(x: geometry.size.width * (CGFloat(i) + 0.5) / 9, y: CGFloat(38 + (i % 2) * 12))
                     }
                 }
             }

@@ -12,7 +12,7 @@ struct AdventureClient {
         let candidates: [RoomCandidate]
         let photos: [ScanPhoto]
         let friend: RealmFriend
-        let planningVersion = 2
+        let planningVersion = 3
         let roomContext: RoomScanContext
     }
     static func endpoint(_ address: String) throws -> URL {

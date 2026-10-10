@@ -1,0 +1,62 @@
+{
+  "ForestTrail": {
+    "triangles": 10964,
+    "materials": 2,
+    "sizeMetersBlenderXYZ": [
+      0.3878518342971802,
+      0.08786149322986603,
+      0.8965083360671997
+    ],
+    "bytes": 2860423
+  },
+  "ForestBloom": {
+    "triangles": 24392,
+    "materials": 4,
+    "sizeMetersBlenderXYZ": [
+      0.37045663595199585,
+      0.1198355033993721,
+      0.7280699014663696
+    ],
+    "bytes": 3502571
+  },
+  "ForestFern": {
+    "triangles": 24276,
+    "materials": 2,
+    "sizeMetersBlenderXYZ": [
+      0.5344684720039368,
+      0.12076490372419357,
+      0.4500930607318878
+    ],
+    "bytes": 3468772
+  },
+  "TropicalTrail": {
+    "triangles": 10964,
+    "materials": 2,
+    "sizeMetersBlenderXYZ": [
+      0.3878518342971802,
+      0.08786149322986603,
+      0.8965083360671997
+    ],
+    "bytes": 2902044
+  },
+  "TropicalBloom": {
+    "triangles": 24392,
+    "materials": 4,
+    "sizeMetersBlenderXYZ": [
+      0.37045663595199585,
+      0.1198355033993721,
+      0.7280699014663696
+    ],
+    "bytes": 3544540
+  },
+  "TropicalFern": {
+    "triangles": 24276,
+    "materials": 2,
+    "sizeMetersBlenderXYZ": [
+      0.5344684720039368,
+      0.12076490372419357,
+      0.4500930607318878
+    ],
+    "bytes": 3510393
+  }
+}

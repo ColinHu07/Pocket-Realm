@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        F40000000000000000000001 /* WallObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002; };
+        F40000000000000000000003 /* Jungle in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000004; };
         A60000000000000000000005 = {isa = PBXBuildFile; fileRef = A60000000000000000000006; };
         A60000000000000000000003 = {isa = PBXBuildFile; fileRef = A60000000000000000000004; };
         A60000000000000000000001 = {isa = PBXBuildFile; fileRef = A60000000000000000000002; };
@@ -25,6 +27,8 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        F40000000000000000000002 /* WallObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/WallObservation.swift; sourceTree = SOURCE_ROOT; };
+        F40000000000000000000004 /* Jungle */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PocketRealm/Resources/Jungle; sourceTree = SOURCE_ROOT; };
         A60000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Views/FriendPreview.swift; sourceTree = SOURCE_ROOT; };
         A60000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/CreatureAnimator.swift; sourceTree = SOURCE_ROOT; };
         A60000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/FriendMotion.swift; sourceTree = SOURCE_ROOT; };
@@ -60,6 +64,8 @@
                 A60000000000000000000006,
                 A60000000000000000000004,
                 A60000000000000000000002,
+                F40000000000000000000002,
+                F40000000000000000000004,
                 E30000000000000000000002,
                 D20000000000000000000002,
                 D20000000000000000000004,
@@ -135,6 +141,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                F40000000000000000000003,
                 C10000000000000000000003,
 				CF8A4D27E1C506A7C75A76BE /* PocketRealm/Resources/Assets.xcassets in Resources */,
 			);
@@ -150,6 +157,7 @@
                 A60000000000000000000005,
                 A60000000000000000000003,
                 A60000000000000000000001,
+                F40000000000000000000001,
                 E30000000000000000000001,
                 D20000000000000000000001,
                 D20000000000000000000003,

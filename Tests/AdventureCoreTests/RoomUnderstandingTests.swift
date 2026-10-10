@@ -28,7 +28,6 @@ final class RoomUnderstandingTests: XCTestCase {
         try validate(value)
         let decoded = try JSONDecoder().decode(EncounterPlan.self, from: JSONEncoder().encode(value.plan))
         XCTAssertEqual(decoded.room?.jungle.palette, .tropical)
-        XCTAssertEqual(decoded.room?.jungle.floors.first?.growth, .meadow)
         XCTAssertEqual(decoded.room?.jungle.walls.map(\.vines), [.light, .lush])
         XCTAssertEqual(decoded.room?.keepsakeObjectID, "table-1")
     }
@@ -38,6 +37,14 @@ final class RoomUnderstandingTests: XCTestCase {
         XCTAssertThrowsError(try validate(value)) { error in
             XCTAssertTrue(error.localizedDescription.contains("Restart server/server.py"))
         }
+    }
+
+    func testFloorGeometryIsOptionalForWallTheme() throws {
+        let value = try fixture()
+        try value.plan.validateRoom(against: value.scan.candidates,
+            surfaces: value.scan.roomContext.surfaces.filter { $0.kind != .floor })
+        let encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(value.plan.room!.jungle)) as! [String: Any]
+        XCTAssertNil(encoded["floors"])
     }
 
     func testUnknownDuplicateMissingAndWrongKindSurfacesAreRejected() throws {
