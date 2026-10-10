@@ -4,7 +4,8 @@ import simd
 /// A support point, with Y up and +Z facing the observer. Validate the whole
 /// animated roster against measured room geometry, including on saved-room replay.
 enum SurfacePlacement {
-    static let footprintRadius: Float = 0.34
+    // Includes Glimlo's animated wings while turning toward any camera heading.
+    static let footprintRadius: Float = 0.36
     static let bodyHeight: Float = 0.70
     static let supportClearance: Float = 0.02
     static let refinementLimit: Float = 0.12

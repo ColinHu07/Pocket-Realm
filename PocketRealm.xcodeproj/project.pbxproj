@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        BE0000000000000000000001 = {isa = PBXBuildFile; fileRef = BE0000000000000000000002; };
         BD0000000000000000000007 = {isa = PBXBuildFile; fileRef = BD0000000000000000000008; };
         BD0000000000000000000005 = {isa = PBXBuildFile; fileRef = BD0000000000000000000006; };
         BD0000000000000000000003 = {isa = PBXBuildFile; fileRef = BD0000000000000000000004; };
@@ -45,6 +46,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        BE0000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/FriendAttention.swift; sourceTree = SOURCE_ROOT; };
         BD0000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/MuseKeyStore.swift; sourceTree = SOURCE_ROOT; };
         BD0000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RoomPlanRequest.swift; sourceTree = SOURCE_ROOT; };
         BD0000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/PlanningProvider.swift; sourceTree = SOURCE_ROOT; };
@@ -98,6 +100,7 @@
 			isa = PBXGroup;
 			children = (
                 BA0000000000000000000002,
+                BE0000000000000000000002,
                 BD0000000000000000000002,
                 BD0000000000000000000004,
                 BD0000000000000000000006,
@@ -210,6 +213,7 @@
 			buildActionMask = 2147483647;
 			files = (
                 BA0000000000000000000001,
+                BE0000000000000000000001,
                 BD0000000000000000000001,
                 BD0000000000000000000003,
                 BD0000000000000000000005,

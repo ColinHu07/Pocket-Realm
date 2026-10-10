@@ -8,6 +8,7 @@ final class CreatureAnimator {
     let root: Entity
     let friend: RealmFriend
     private(set) var motion: FriendMotion
+    private(set) var attention = FriendAttention()
     private struct Control {
         let entity: Entity
         let rest: Transform
@@ -50,10 +51,12 @@ final class CreatureAnimator {
 
     @discardableResult func react(_ reaction: FriendReaction) -> Bool { motion.trigger(reaction) }
 
-    func update(delta: Double, speaking: Bool = false, reducedMotion: Bool = false) {
+    func update(delta: Double, speaking: Bool = false, reducedMotion: Bool = false,
+                viewer: FriendAttention.View? = nil) {
         let pose = motion.update(delta: delta, speaking: speaking, reducedMotion: reducedMotion)
+        let facing = attention.update(delta: delta, view: viewer, reducedMotion: reducedMotion)
         root.transform = Transform(scale: pose.scale,
-            rotation: simd_quatf(angle: pose.rotation.y, axis: [0,1,0])
+            rotation: simd_quatf(angle: facing + pose.rotation.y, axis: [0,1,0])
                 * simd_quatf(angle: pose.rotation.x, axis: [1,0,0])
                 * simd_quatf(angle: pose.rotation.z, axis: [0,0,1]), translation: pose.position)
         for (name, control) in controls {

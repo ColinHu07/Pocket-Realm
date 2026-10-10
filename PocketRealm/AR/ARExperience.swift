@@ -1159,6 +1159,22 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private func position(_ matrix: simd_float4x4) -> SIMD3<Float> { [matrix.columns.3.x, matrix.columns.3.y, matrix.columns.3.z] }
     private func horizontalDistance(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float { simd_length(SIMD2<Float>(a.x - b.x, a.z - b.z)) }
 
+    private func friendViewer() -> FriendAttention.View? {
+        guard let anchor, anchor.isAnchored, let frame = arView.session.currentFrame,
+              case .normal = frame.camera.trackingState,
+              !themePresented, !connectionPresented, !drawingPresented else { return nil }
+        // A stable point inside the body avoids attention flickering as ears,
+        // particles and reaction poses change the visual bounds.
+        let target = anchor.convert(position: [0, 0.25, 0], to: nil)
+        let cameraLocal = simd_inverse(frame.camera.transform) * SIMD4(target, 1)
+        let screenPoint = arView.project(target)
+        let viewport = arView.bounds.insetBy(dx: arView.bounds.width * 0.04, dy: arView.bounds.height * 0.04)
+        let looking = cameraLocal.z < -0.05 && screenPoint.map { viewport.contains($0) } == true
+        return FriendAttention.View(
+            cameraPosition: anchor.convert(position: position(frame.camera.transform), from: nil),
+            isLooking: looking)
+    }
+
     private func tick(_ delta: Double) {
         elapsed += min(delta, 0.1)
         let previousCue = game.challenge?.highlightedID
@@ -1171,7 +1187,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         }
         if !suspended && !interrupted && trackingReady {
             creatureAnimator?.update(delta: delta, speaking: speech.isSpeaking,
-                                     reducedMotion: UIAccessibility.isReduceMotionEnabled)
+                                     reducedMotion: UIAccessibility.isReduceMotionEnabled, viewer: friendViewer())
         }
         let step = Float(min(delta, 0.1))
         if let keepsake {
