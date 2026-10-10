@@ -24,7 +24,9 @@ export GEMINI_API_KEY
 python3 server/server.py
 ```
 
-The default port is 8787. The model defaults to `gemini-flash-latest`; override it with `GEMINI_MODEL` if your account uses another compatible model. The server uses Gemini's Interactions API with a constrained JSON schema.
+Alternatively, copy `server/.env.example` to `server/.env` and fill in the key; the server loads it on startup (the file is git-ignored, and exported variables take precedence).
+
+The default port is 8787. The model defaults to `gemini-3.6-flash`; override it with `GEMINI_MODEL` if your account uses another compatible model. The server uses Gemini's Interactions API with a constrained JSON schema.
 
 Find your Mac's local hostname in another terminal:
 
@@ -86,7 +88,7 @@ Room-planning validation covers the shared Swift/server JSON contract, mandatory
 - Backgrounding during scanning requires a fresh scan on return. During gameplay, the app attempts to resume tracking. **Scan again** is the recovery path if relocalization fails.
 - Network/provider failures offer a retry using the same captured geometry and snapshots. There is no silent local fallback pretending to be Gemini. Quota and provider-unavailable errors explain the retry condition.
 - Camera frames are sampled into at most six JPEGs with a maximum dimension of 640 pixels. They are held in memory and discarded after successful planning or rescan. Room data and images go to your configured server and Gemini. The proxy does not log or save those payloads and requests `store: false` from the provider; this is not a claim about provider-wide retention policies.
-- The API key is only read by the server from `GEMINI_API_KEY`.
+- The API key is only read by the server from `GEMINI_API_KEY` (exported, or from the git-ignored `server/.env`).
 
 ## Blender sources and exports
 

@@ -3,17 +3,33 @@ import base64
 import json
 import math
 import os
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 MAX_BODY = 3_000_000
+# The app gives up after 75 s, so every retry must finish inside this budget.
+PLAN_DEADLINE = 60
+RETRYABLE = {429, 500, 503}
 FRIENDS = {
     "Mosskip": "a cheerful mint-green sprout courier carrying a seed satchel; curious and easily lost",
     "Glimlo": "a bashful peach lantern moth with petal wings; loves helping friends feel brave",
     "Pebblin": "a sleepy lilac pebble snail with a crystal shell; collects lovely dreams",
 }
 ALLOWED = {"storage", "refrigerator", "table", "sofa", "chair", "bed"}
+
+
+def load_env(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")):
+    # Fill unset variables from the git-ignored server/.env; real environment values win.
+    try:
+        with open(path) as env:
+            for line in env:
+                name, sep, value = line.strip().partition("=")
+                if sep and name and not name.startswith("#"):
+                    os.environ.setdefault(name.strip(), value.strip().strip("'\""))
+    except FileNotFoundError:
+        pass
 
 
 def validate_scan(body):
@@ -253,7 +269,7 @@ def make_request(candidates, photos, friend="Mosskip", context=None):
                 "yawRadians": photo["yaw"], "cameraPosition": photo["position"], "cameraForward": photo["forward"]})})
         input_parts.append({"type": "image", "data": photo["jpeg"], "mime_type": "image/jpeg"})
     return {
-        "model": os.environ.get("GEMINI_MODEL", "gemini-flash-latest"),
+        "model": os.environ.get("GEMINI_MODEL", "gemini-3.6-flash"),
         "input": input_parts,
         "response_format": {"type": "text", "mime_type": "application/json", "schema": schema},
         "generation_config": {"max_output_tokens": 4096 if context is not None else 1500},
@@ -295,14 +311,25 @@ def generate_plan(body):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("Set GEMINI_API_KEY on the adventure server, then retry.")
-    request = Request(
-        "https://generativelanguage.googleapis.com/v1beta/interactions",
-        data=json.dumps(make_request(candidates, photos, friend, context)).encode(),
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
-        method="POST",
-    )
-    with urlopen(request, timeout=60 if context is not None else 35) as response:
-        return parse_response(json.load(response), candidates, context)
+    payload = json.dumps(make_request(candidates, photos, friend, context)).encode()
+    deadline = time.monotonic() + PLAN_DEADLINE
+    for attempt in range(3):
+        request = Request(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            data=payload,
+            headers={"Content-Type": "application/json", "x-goog-api-key": key},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=max(5, deadline - time.monotonic())) as response:
+                return parse_response(json.load(response), candidates, context)
+        except HTTPError as error:
+            # Gemini's "high demand" 503s are frequent and brief; retry while time allows.
+            backoff = 2 * (attempt + 1)
+            if error.code not in RETRYABLE or attempt == 2 or deadline - time.monotonic() < backoff + 15:
+                raise
+            print(f"  Gemini HTTP {error.code}; retrying in {backoff}s", flush=True)
+            time.sleep(backoff)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -323,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.reply(200, {"status": "ready", "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY")),
-                         "planningVersion": 2, "model": os.environ.get("GEMINI_MODEL", "gemini-flash-latest")}) if self.path == "/health" else self.reply(404, {"error": "Not found"})
+                         "planningVersion": 2, "model": os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")}) if self.path == "/health" else self.reply(404, {"error": "Not found"})
 
     def do_POST(self):
         if self.path != "/plan":
@@ -335,22 +362,34 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(413, {"error": "Room scan is too large or empty."})
                 return
             self.connection.settimeout(15)
+            started = time.monotonic()
+            # Log only that a scan arrived and how it went; never its contents.
+            print(f"Scan received from {self.client_address[0]} ({length // 1024} KB); asking Gemini...", flush=True)
             body = json.loads(self.rfile.read(length))
-            self.reply(200, generate_plan(body))
+            plan = generate_plan(body)
+            print(f"  Plan ready in {time.monotonic() - started:.1f}s", flush=True)
+            self.reply(200, plan)
         except (ValueError, UnicodeDecodeError) as error:
-            self.reply(400, {"error": str(error)})
+            self.fail(400, str(error))
         except RuntimeError as error:
-            self.reply(503, {"error": str(error)})
+            self.fail(503, str(error))
         except HTTPError as error:
             message = {429: "Gemini hit a rate limit or quota. Wait before retrying, and check this model's quota in AI Studio.",
                        503: "Gemini is temporarily unavailable. Your scan is saved in memory; try again shortly."}.get(
                            error.code, f"Gemini returned HTTP {error.code}. Check your server key, model access, and quota.")
-            self.reply(502, {"error": message})
-        except (URLError, TimeoutError, OSError):
-            self.reply(502, {"error": "Couldn't reach Gemini. Check the server connection and retry."})
+            self.fail(502, message)
+        except TimeoutError:
+            self.fail(504, "Gemini took too long to plan this room. Your scan is saved; try again.")
+        except (URLError, OSError):
+            self.fail(502, "Couldn't reach Gemini. Check the server connection and retry.")
+
+    def fail(self, status, message):
+        print(f"  Failed ({status}): {message}", flush=True)
+        self.reply(status, {"error": message})
 
 
 if __name__ == "__main__":
+    load_env()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8787"))
     print(f"Pocket Realm server listening on {host}:{port}. Gemini key configured: {bool(os.environ.get('GEMINI_API_KEY'))}", flush=True)

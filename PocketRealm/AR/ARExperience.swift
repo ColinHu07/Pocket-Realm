@@ -24,8 +24,21 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var proximity = ProximityGate()
     @Published private(set) var selectedCategory = ""
     @Published private(set) var requesting = false
-    @Published var serverAddress = UserDefaults.standard.string(forKey: "adventureServer") ?? "" {
+    @Published var serverAddress = ARExperience.initialServerAddress() {
         didSet { UserDefaults.standard.set(serverAddress, forKey: "adventureServer") }
+    }
+
+    /// A build that ships a new default server replaces the address saved from an older build;
+    /// otherwise the user's own saved address wins.
+    private static func initialServerAddress() -> String {
+        let defaults = UserDefaults.standard
+        let bundled = (Bundle.main.object(forInfoDictionaryKey: "AdventureServerDefault") as? String ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        if !bundled.isEmpty, !bundled.hasPrefix("$("), defaults.string(forKey: "adventureServerDefault") != bundled {
+            defaults.set(bundled, forKey: "adventureServerDefault")
+            defaults.set(bundled, forKey: "adventureServer")
+        }
+        return defaults.string(forKey: "adventureServer").flatMap { $0.isEmpty ? nil : $0 } ?? ""
     }
     @Published var connectionPresented = false
     @Published var themePresented = false

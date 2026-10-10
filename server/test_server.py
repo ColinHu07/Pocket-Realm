@@ -155,8 +155,21 @@ class RoomPlanningTests(unittest.TestCase):
             request = provider.call_args.args[0]
             payload = json.loads(request.data)
             self.assertIn("room", payload["response_format"]["schema"]["required"])
-            self.assertEqual(provider.call_args.kwargs["timeout"], 60)
+            self.assertAlmostEqual(provider.call_args.kwargs["timeout"], 60, delta=1)
             self.assertNotIn("test-only-key", request.data.decode())
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key"})
+    @patch("server.time.sleep")
+    def test_retries_brief_gemini_overload(self, sleep):
+        busy = HTTPError("https://example.invalid", 503, "Unavailable", {}, io.BytesIO(b"{}"))
+        with patch("server.urlopen", side_effect=[busy, io.BytesIO(json.dumps(response(self.plan)).encode())]) as provider:
+            self.assertEqual(generate_plan(self.scan), self.plan)
+        self.assertEqual(provider.call_count, 2)
+        sleep.assert_called_once_with(2)
+        bad_key = HTTPError("https://example.invalid", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+        with patch("server.urlopen", side_effect=bad_key) as provider, self.assertRaises(HTTPError):
+            generate_plan(self.scan)
+        self.assertEqual(provider.call_count, 1)
 
 
 class HTTPTests(unittest.TestCase):
