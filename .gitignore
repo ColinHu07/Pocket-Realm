@@ -9,3 +9,4 @@ xcuserdata/
 !.env.example
 __pycache__/
 *.pyc
+*.blend[0-9]

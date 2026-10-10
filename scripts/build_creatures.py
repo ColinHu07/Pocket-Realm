@@ -6,20 +6,42 @@ from pathlib import Path
 import bpy
 import math
 import json
+import sys
 import numpy as np
-from mathutils import Vector
+from mathutils import Vector, Matrix
 from mathutils.bvhtree import BVHTree
 
 ROOT = Path(__file__).resolve().parents[1]
 ART = ROOT / 'Art' / 'Creatures'
 ASSETS = ROOT / 'PocketRealm' / 'Resources' / 'Creatures'
 for folder in (ART, ASSETS, ART/'Textures'): folder.mkdir(parents=True, exist_ok=True)
-bpy.ops.object.select_all(action='SELECT')
-bpy.ops.object.delete(use_global=False)
+original_names=('Mosskip','Glimlo','Pebblin','Bloopi','Nibbi','Cindlet')
+incremental='--new-only' in sys.argv
+existing_roots=[]
+if incremental:
+    bpy.ops.wm.open_mainfile(filepath=str(ART/'PocketRealm-Friends.blend'))
+    existing_roots=[bpy.data.objects[name] for name in original_names]
+    keep=set(existing_roots)
+    for root in existing_roots:
+        root.animation_data_clear(); root.rotation_mode='XYZ'
+        root.location=(0,0,0); root.rotation_euler=(0,0,0); root.scale=(.22,)*3
+        for child in list(root.children_recursive):
+            if child.name.startswith((root.name+'_heart_',root.name+'_star_')): continue
+            keep.add(child)
+            if child.type=='EMPTY':
+                child.animation_data_clear(); child.rotation_mode='XYZ'
+                child.rotation_euler=(math.pi/2,0,0); child.scale=(1,1,1)
+    for obj in list(bpy.data.objects):
+        if obj not in keep: bpy.data.objects.remove(obj,do_unlink=True)
+else:
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
 scene = bpy.context.scene
 scene.render.engine = 'CYCLES'
 scene.cycles.samples = 48
 scene.cycles.use_denoising = True
+scene.render.threads_mode = 'FIXED'
+scene.render.threads = 2
 scene.render.image_settings.file_format = 'PNG'
 scene.view_settings.view_transform = 'AgX'
 scene.unit_settings.system = 'METRIC'
@@ -55,7 +77,9 @@ M = {k:mat(k,c,r,e) for k,c,r,e in [
     ('seam','845C39',.63,0),('peach','EEA27A',.48,0),('apricot','DE815B',.5,0),
     ('wing','F6D091',.49,0),('glow','FFDB7F',.3,.35),
     ('lilac','AA93D0',.45,0),('shell','71619A',.36,0),
-    ('teal','6ECDBD',.28,0),('rose','EFA6B4',.48,0),('berry','C96A85',.55,0),('honey','F0BD69',.48,0),('coral','D87857',.5,0),('floor','E8E5DB',.8,0)]}
+    ('teal','6ECDBD',.28,0),('rose','EFA6B4',.48,0),('berry','C96A85',.55,0),('honey','F0BD69',.48,0),('coral','D87857',.5,0),('floor','E8E5DB',.8,0),
+    ('cloud','AEC5EA',.5,0),('cloudFin','CFBCE9',.48,0),('cocoa','AC785D',.6,0),
+    ('sunny','F7D878',.52,0),('beak','EFA24F',.48,0),('petal','FFF8E4',.55,0)]}
 active_root = None
 bodies = {}
 
@@ -177,6 +201,31 @@ def paint(obj, kind, resolution=1024):
         colors=mix(colors,rgb('FFF0C9'),mask(x,z,0,.65,.34,.36)*front*.9)
         colors=mix(colors,rgb('B77A46'),np.clip((.32-z)*3.8,0,.65))
         face_z=.96; cheeks=.38
+    elif kind=='Pufflo':
+        colors=np.tile(rgb('AAC6EB'),(len(x),1))
+        colors=mix(colors,rgb('F5F5EE'),mask(x,z,0,.72,.74,.39)*front*.97)
+        colors=mix(colors,rgb('D0C0E9'),np.clip((y-.08)*2,0,.7))
+        face_z=.87; cheeks=.43
+    elif kind=='Trufflet':
+        colors=np.tile(rgb('BC8C69'),(len(x),1))
+        colors=mix(colors,rgb('FBE4B8'),mask(x,z,0,.98,.52,.53)*front*.96)
+        colors=mix(colors,rgb('F4D8A5'),mask(x,z,0,.52,.35,.29)*front*.9)
+        colors=mix(colors,rgb('986344'),np.clip((.29-z)*5,0,.55))
+        face_z=.80; cheeks=.34
+    elif kind=='Dottli':
+        colors=np.tile(rgb('F4D473'),(len(x),1))
+        colors=mix(colors,rgb('FFF4C7'),mask(x,z,0,.67,.48,.41)*front*.96)
+        colors=mix(colors,rgb('FFE5A2'),mask(x,z,0,1.20,.48,.31)*front*.62)
+        face_z=1.06; cheeks=.35
+    elif kind=='trufflet_cap':
+        colors=np.tile(rgb('C97862'),(len(x),1))
+        colors=mix(colors,rgb('E79F78'),np.clip((z-1.4)*1.9,0,.7))
+        colors=mix(colors,rgb('FAE1BA'),np.clip((1.41-z)*18,0,1))
+        spots=np.zeros(len(x))
+        for cx,cy,cz,r in ((-.39,-.34,1.62,.115),(.20,-.45,1.62,.135),(.52,-.17,1.59,.085),(-.13,-.08,1.84,.13),(.20,.27,1.74,.10),(-.44,.20,1.61,.095)):
+            distance=((x-cx)**2+(y-cy)**2+(z-cz)**2)**.5
+            spots=np.maximum(spots,np.clip((r-distance)*45,0,1))
+        colors=mix(colors,rgb('FFF0D4'),spots*.96)
     elif kind=='flame_tail':
         colors=np.tile(rgb('D88B53'),(len(x),1))
         colors=mix(colors,rgb('F7CB79'),np.clip((z-.60)*1.5,0,1))
@@ -197,7 +246,7 @@ def paint(obj, kind, resolution=1024):
         centers=np.array(shell_spiral_points)
         distance=np.min(np.sum((xyz[:,None,:]-centers[None,:,:])**2,axis=2),axis=1)**.5
         colors=mix(colors,rgb('C6AFDA'),np.exp(-(distance/.07)**2)*.78)
-    if kind in ('Mosskip','Glimlo','Pebblin','Bloopi','Nibbi','Cindlet'):
+    if kind in ('Mosskip','Glimlo','Pebblin','Bloopi','Nibbi','Cindlet','Pufflo','Trufflet','Dottli'):
         blush=np.maximum(mask(x,z,-cheeks,face_z,.15,.085),mask(x,z,cheeks,face_z,.15,.085))*front
         colors=mix(colors,rgb('EA9C96'),blush*.76)
         # Very subtle pigment variation, not a bumpy procedural surface.
@@ -258,15 +307,33 @@ def surface(body,x,z):
     return loc,normal
 
 
-def face(body,z,spacing=.245):
+def place_eye_catchlight(eye, glint):
+    """Seat the highlight on the eye ellipsoid, including its surface rotation."""
+    assert eye.parent == glint.parent
+    bpy.context.view_layer.update()
+    center, rotation, radii = eye.matrix_local.decompose()
+    x, z = -.021, .033
+    y = -radii.y * math.sqrt(1 - (x/radii.x)**2 - (z/radii.z)**2)
+    normal = Vector((x/radii.x**2, y/radii.y**2, z/radii.z**2)).normalized()
+    position = center + rotation @ (Vector((x,y,z)) + normal*.003)
+    orientation = rotation @ normal.to_track_quat('-Y','Z')
+    glint.matrix_world = eye.parent.matrix_world @ Matrix.LocRotScale(position, orientation, Vector((.019,.010,.024)))
+
+
+def face(body,z,spacing=.245,beak=False):
     for side in (-1,1):
         x=side*spacing; loc,normal=surface(body,x,z)
         eye=orb('eye_L' if side<0 else 'eye_R',loc+normal*.009,(.086,.040,.111),'ink')
         eye.rotation_euler=normal.to_track_quat('-Y','Z').to_euler()
-        # Small intentional highlight embedded into the glossy eye surface.
-        p=loc+normal*.044+Vector((-.021,0,.033))
-        glint=orb('eye_catchlight',p,(.019,.010,.024),'shine',segments=24,rings=16)
+        glint=orb('eye_catchlight',(0,0,0),(.019,.010,.024),'shine',segments=24,rings=16)
+        place_eye_catchlight(eye,glint)
         motion_pivot('EyeL' if side<0 else 'EyeR',loc,[eye,glint])
+    if beak:
+        loc,n=surface(body,0,z-.15)
+        top=orb('duck_beak',loc+n*.070,(.145,.095,.067),'beak')
+        bottom=orb('duck_lower_beak',loc+n*.067+Vector((0,0,-.036)),(.122,.078,.036),'honey')
+        seam=line('duck_smile',[loc+Vector((x,-.144,dz)) for x,dz in ((-.094,-.004),(0,-.019),(.094,-.004))],.006,'seam')
+        motion_pivot('Mouth',loc,[top,bottom,seam]); return
     points=[]
     for x,dz in ((-.09,-.166),(-.045,-.198),(0,-.21),(.045,-.198),(.09,-.166)):
         loc,n=surface(body,x,z+dz); points.append(loc+n*.006)
@@ -461,6 +528,76 @@ def make_cindlet():
     orb('fox_nose',nose+n*.011,(.032,.018,.024),'seam')
 
 
+def make_pufflo():
+    # A wide, seamless whale bean: the taper flows into an upturned tail stock.
+    body=sculpt('Pufflo_continuous_body',[
+        orb('whale_bean',(0,0,.83),(.73,.48,.51)),
+        orb('whale_cheeks',(0,-.13,.97),(.60,.43,.39)),
+        orb('tail_stock',(.38,.34,.86),(.32,.33,.32)),
+        orb('tail_rise',(.53,.48,1.08),(.19,.20,.34),rotation=(0,.35,0))],voxel=.022,iterations=22,reduction=.18)
+    bodies['Pufflo']=body; paint(body,'Pufflo'); face(body,1.055,.265)
+    for side in (-1,1):
+        fin=sculpt('cloud_flipper',[
+            orb('fin_shoulder',(side*.57,-.02,.77),(.20,.19,.23)),
+            orb('fin_sweep',(side*.76,-.04,.61),(.26,.15,.16),rotation=(0,side*.52,0))],voxel=.019,iterations=18,reduction=.14)
+        fin.data.materials.append(M['cloudFin'])
+        motion_pivot('AppendageL' if side<0 else 'AppendageR',(side*.54,.015,.82),[fin])
+    tail=sculpt('cloud_flukes',[
+        orb('fluke_base',(.59,.49,1.31),(.17,.15,.20)),
+        orb('fluke_left',(.42,.49,1.43),(.27,.12,.16),rotation=(0,-.55,0)),
+        orb('fluke_right',(.77,.49,1.43),(.27,.12,.16),rotation=(0,.55,0))],voxel=.017,iterations=15,reduction=.15)
+    tail.data.materials.append(M['cloudFin']); motion_pivot('Tail',(.55,.48,1.18),[tail])
+    # One little polished cloud bell, suspended from a curved ribbon.
+    line('bell_ribbon',[(-.17,-.45,.77),(0,-.49,.59),(.17,-.45,.77)],.014,'cream')
+    orb('cloud_bell',(0,-.465,.51),(.076,.046,.076),'honey')
+    line('bell_slit',[(-.040,-.512,.505),(0,-.516,.494),(.040,-.512,.505)],.006,'seam')
+
+
+def make_trufflet():
+    parts=[orb('stem_torso',(0,0,.67),(.45,.37,.54)),orb('stem_face',(0,-.07,1.01),(.48,.35,.36))]
+    for side in (-1,1):
+        parts.append(orb('root_foot',(side*.24,-.08,.18),(.20,.26,.18)))
+        parts.append(orb('story_paw',(side*.40,-.055,.59),(.15,.18,.25),rotation=(0,side*-.5,0)))
+    body=sculpt('Trufflet_continuous_body',parts,voxel=.021,iterations=22,reduction=.18)
+    bodies['Trufflet']=body; paint(body,'Trufflet'); face(body,.99,.215)
+    cap=sculpt('storybook_cap',[
+        orb('cap_lip',(0,.015,1.38),(.77,.53,.15)),
+        orb('cap_dome',(-.06,.025,1.50),(.69,.48,.36)),
+        orb('cap_crown',(-.13,.03,1.69),(.36,.33,.20))],voxel=.022,iterations=22,reduction=.18)
+    paint(cap,'trufflet_cap'); motion_pivot('Shell',(0,.03,1.27),[cap])
+    # A closed tiny book tucked at the hip; its page block sits inside the cover.
+    rounded_box('story_cover',(.31,-.36,.47),(.25,.085,.30),'leaf',.043)
+    rounded_box('story_pages',(.315,-.407,.48),(.20,.025,.245),'cream',.026)
+    line('bookmark',[ (.30,-.424,.60),(.30,-.424,.43),(.34,-.424,.40)],.009,'coral')
+
+
+def make_dottli():
+    parts=[orb('duck_tummy',(0,0,.62),(.56,.43,.51)),orb('duck_head',(0,-.07,1.16),(.46,.35,.41)),
+           orb('soft_neck',(0,-.025,.94),(.36,.31,.37))]
+    for side in (-1,1):
+        parts.append(orb('duck_foot',(side*.255,-.16,.15),(.23,.31,.13)))
+    body=sculpt('Dottli_continuous_body',parts,voxel=.022,iterations=22,reduction=.18)
+    bodies['Dottli']=body; paint(body,'Dottli'); face(body,1.205,.215,beak=True)
+    for side in (-1,1):
+        wing=sculpt('duck_wing',[
+            orb('wing_shoulder',(side*.47,.015,.76),(.18,.21,.29),rotation=(0,side*-.25,0)),
+            orb('wing_tip',(side*.57,-.01,.56),(.16,.19,.22),rotation=(0,side*.30,0))],voxel=.020,iterations=18,reduction=.15)
+        wing.data.materials.append(M['sunny'])
+        motion_pivot('AppendageL' if side<0 else 'AppendageR',(side*.43,.04,.88),[wing])
+    tail=sculpt('duck_tail',[
+        orb('tail_root',(0,.33,.49),(.24,.24,.21)),orb('tail_fan',(0,.52,.65),(.29,.24,.15),rotation=(.45,0,0))],voxel=.022,iterations=18,reduction=.16)
+    tail.data.materials.append(M['cream']); motion_pivot('Tail',(0,.32,.49),[tail])
+    # The daisy is one fused flower surface, with a golden center and a real stem.
+    line('daisy_stem',[(.13,.01,1.47),(.18,.025,1.70),(.26,.01,1.81)],.019,'leaf')
+    flower=[]
+    for i in range(6):
+        a=i*math.tau/6
+        flower.append(orb('daisy_petal',(.26+math.sin(a)*.105,-.010,1.83+math.cos(a)*.105),(.061,.037,.11),rotation=(0,a,0)))
+    petals=sculpt('daisy_petals',flower,voxel=.012,iterations=10,reduction=.15); petals.data.materials.append(M['petal'])
+    orb('daisy_center',(.26,-.051,1.83),(.070,.032,.070),'honey')
+    leaf('daisy_leaf',(.15,.01,1.57),.21,.062,'leafLight',-.8)
+
+
 def rig_existing_appendages(name):
     children=list(active_root.children)
     def named(prefix): return [o for o in children if o.name.startswith(prefix)]
@@ -476,8 +613,10 @@ def rig_existing_appendages(name):
         motion_pivot('Shell',(0,.36,.55),shell)
 
 
-roots=[]; stats={}
-for name,builder in [('Mosskip',make_mosskip),('Glimlo',make_glimlo),('Pebblin',make_pebblin),('Bloopi',make_bloopi),('Nibbi',make_nibbi),('Cindlet',make_cindlet)]:
+roots=list(existing_roots)
+stats={name:record for name,record in json.loads((ART/'manifest.json').read_text()).items() if name in original_names} if incremental else {}
+for name,builder in [('Mosskip',make_mosskip),('Glimlo',make_glimlo),('Pebblin',make_pebblin),('Bloopi',make_bloopi),('Nibbi',make_nibbi),('Cindlet',make_cindlet),('Pufflo',make_pufflo),('Trufflet',make_trufflet),('Dottli',make_dottli)]:
+    if incremental and name in original_names: continue
     bpy.ops.object.select_all(action='DESELECT')
     active_root=bpy.data.objects.new(name,None); bpy.context.collection.objects.link(active_root)
     builder(); rig_existing_appendages(name); root=active_root; root.scale=(.22,.22,.22)
@@ -523,6 +662,7 @@ def visible(root, show):
 
 for root in roots: visible(root,False)
 for root in roots:
+    if incremental and root.name in original_names: continue
     visible(root,True)
     aim((.68,-1.8,.88),(0,0,.23),.64)
     scene.render.resolution_x=640; scene.render.resolution_y=640; scene.render.resolution_percentage=100
@@ -536,13 +676,20 @@ for root in roots:
     (folder/'Contents.json').write_text(json.dumps({'images':[{'filename':f'{root.name}.png','idiom':'universal'}],'info':{'author':'xcode','version':1}},indent=2)+'\n')
     visible(root,False)
 
-for root,x in zip(roots,(-1.53,-.92,-.30,.30,.92,1.53)):
+for root,x in zip(roots[-3:],(-.68,0,.68)):
+    visible(root,True); root.location.x=x; root.rotation_euler.z=.06
+scene.render.resolution_x=1600; scene.render.resolution_y=700
+aim((.28,-4.5,1.20),(0,0,.24),2.25)
+scene.render.filepath=str(ART/'friends-new-trio.png')
+bpy.ops.render.render(write_still=True)
+
+for root,x in zip(roots,np.linspace(-2.54,2.54,len(roots))):
     visible(root,True); root.location.x=x
     # A little rotation lets the last friend's spiral shell read in the lineup.
     root.rotation_euler.z= -.22 if root.name=='Pebblin' else .06
-scene.render.resolution_x=2400; scene.render.resolution_y=900
+scene.render.resolution_x=3600; scene.render.resolution_y=900
 scene.cycles.samples=48
-aim((.42,-5.5,1.7),(0,0,.23),3.93)
+aim((.42,-7.5,2.0),(0,0,.23),5.96)
 scene.render.filepath=str(ART/'friends-lineup.png')
 # Open the editable source on the composed camera view.
 for screen in bpy.data.screens:

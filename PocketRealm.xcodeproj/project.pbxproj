@@ -7,11 +7,23 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-        F40000000000000000000001 /* WallObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002; };
-        F40000000000000000000003 /* Jungle in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000004; };
+        BD0000000000000000000007 = {isa = PBXBuildFile; fileRef = BD0000000000000000000008; };
+        BD0000000000000000000005 = {isa = PBXBuildFile; fileRef = BD0000000000000000000006; };
+        BD0000000000000000000003 = {isa = PBXBuildFile; fileRef = BD0000000000000000000004; };
+        BD0000000000000000000001 = {isa = PBXBuildFile; fileRef = BD0000000000000000000002; };
+        F50000000000000000000001 /* Themes in Resources */ = {isa = PBXBuildFile; fileRef = F50000000000000000000002; };
+        BA0000000000000000000001 = {isa = PBXBuildFile; fileRef = BA0000000000000000000002; };
+        B90000000000000000000001 = {isa = PBXBuildFile; fileRef = B90000000000000000000002; };
+        B90000000000000000000003 = {isa = PBXBuildFile; fileRef = B90000000000000000000004; };
+        B80000000000000000000001 = {isa = PBXBuildFile; fileRef = B80000000000000000000002; };
+        B70000000000000000000005 = {isa = PBXBuildFile; fileRef = B70000000000000000000006; };
+        B70000000000000000000003 = {isa = PBXBuildFile; fileRef = B70000000000000000000004; };
+        B70000000000000000000001 = {isa = PBXBuildFile; fileRef = B70000000000000000000002; };
         A60000000000000000000005 = {isa = PBXBuildFile; fileRef = A60000000000000000000006; };
         A60000000000000000000003 = {isa = PBXBuildFile; fileRef = A60000000000000000000004; };
         A60000000000000000000001 = {isa = PBXBuildFile; fileRef = A60000000000000000000002; };
+        F40000000000000000000001 /* WallObservation.swift in Sources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000002; };
+        F40000000000000000000003 /* Jungle in Resources */ = {isa = PBXBuildFile; fileRef = F40000000000000000000004; };
         E30000000000000000000001 /* RoomUnderstanding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30000000000000000000002; };
         D20000000000000000000001 /* RealmTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002; };
         D20000000000000000000003 /* ThemeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000004; };
@@ -27,11 +39,23 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-        F40000000000000000000002 /* WallObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/WallObservation.swift; sourceTree = SOURCE_ROOT; };
-        F40000000000000000000004 /* Jungle */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PocketRealm/Resources/Jungle; sourceTree = SOURCE_ROOT; };
+        BD0000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/MuseKeyStore.swift; sourceTree = SOURCE_ROOT; };
+        BD0000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RoomPlanRequest.swift; sourceTree = SOURCE_ROOT; };
+        BD0000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/PlanningProvider.swift; sourceTree = SOURCE_ROOT; };
+        BD0000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/MuseClient.swift; sourceTree = SOURCE_ROOT; };
+        F50000000000000000000002 /* Themes */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PocketRealm/Resources/Themes; sourceTree = SOURCE_ROOT; };
+        BA0000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/SurfacePlacement.swift; sourceTree = SOURCE_ROOT; };
+        B90000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/GeminiClient.swift; sourceTree = SOURCE_ROOT; };
+        B90000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/GeminiKeyStore.swift; sourceTree = SOURCE_ROOT; };
+        B80000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/SavedRoom.swift; sourceTree = SOURCE_ROOT; };
+        B70000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Views/QuestPractice.swift; sourceTree = SOURCE_ROOT; };
+        B70000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Views/QuestPanel.swift; sourceTree = SOURCE_ROOT; };
+        B70000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/QuestChallenge.swift; sourceTree = SOURCE_ROOT; };
         A60000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Views/FriendPreview.swift; sourceTree = SOURCE_ROOT; };
         A60000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/CreatureAnimator.swift; sourceTree = SOURCE_ROOT; };
         A60000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/FriendMotion.swift; sourceTree = SOURCE_ROOT; };
+        F40000000000000000000002 /* WallObservation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/WallObservation.swift; sourceTree = SOURCE_ROOT; };
+        F40000000000000000000004 /* Jungle */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PocketRealm/Resources/Jungle; sourceTree = SOURCE_ROOT; };
         E30000000000000000000002 /* RoomUnderstanding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RoomUnderstanding.swift; sourceTree = SOURCE_ROOT; };
         D20000000000000000000002 /* RealmTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RealmTheme.swift; sourceTree = SOURCE_ROOT; };
         D20000000000000000000004 /* ThemeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/ThemeFactory.swift; sourceTree = SOURCE_ROOT; };
@@ -61,11 +85,23 @@
 		B28B7AF69320201D1CF206EB = {
 			isa = PBXGroup;
 			children = (
+                BA0000000000000000000002,
+                BD0000000000000000000002,
+                BD0000000000000000000004,
+                BD0000000000000000000006,
+                BD0000000000000000000008,
+                B90000000000000000000002,
+                B90000000000000000000004,
+                B80000000000000000000002,
+                B70000000000000000000006,
+                B70000000000000000000004,
+                B70000000000000000000002,
                 A60000000000000000000006,
                 A60000000000000000000004,
                 A60000000000000000000002,
                 F40000000000000000000002,
                 F40000000000000000000004,
+                F50000000000000000000002,
                 E30000000000000000000002,
                 D20000000000000000000002,
                 D20000000000000000000004,
@@ -142,6 +178,7 @@
 			buildActionMask = 2147483647;
 			files = (
                 F40000000000000000000003,
+                F50000000000000000000001,
                 C10000000000000000000003,
 				CF8A4D27E1C506A7C75A76BE /* PocketRealm/Resources/Assets.xcassets in Resources */,
 			);
@@ -154,6 +191,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                BA0000000000000000000001,
+                BD0000000000000000000001,
+                BD0000000000000000000003,
+                BD0000000000000000000005,
+                BD0000000000000000000007,
+                B90000000000000000000001,
+                B90000000000000000000003,
+                B80000000000000000000001,
+                B70000000000000000000005,
+                B70000000000000000000003,
+                B70000000000000000000001,
                 A60000000000000000000005,
                 A60000000000000000000003,
                 A60000000000000000000001,
@@ -184,7 +232,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PocketRealm/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Pocket Realm";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Pocket Realm scans furniture and sends up to six room snapshots to your adventure server and Gemini to choose a creature location.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Pocket Realm scans furniture and sends up to six room snapshots directly to Google Gemini to plan your room and adventure.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;
@@ -212,7 +260,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = PocketRealm/Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Pocket Realm";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Pocket Realm scans furniture and sends up to six room snapshots to your adventure server and Gemini to choose a creature location.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Pocket Realm scans furniture and sends up to six room snapshots directly to Google Gemini to plan your room and adventure.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIRequiresFullScreen = YES;

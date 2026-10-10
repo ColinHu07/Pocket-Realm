@@ -1,0 +1,92 @@
+{
+  "ReefFan": {
+    "triangles": 23912,
+    "materials": 2,
+    "sizeMetersBlenderXYZ": [
+      0.5934666991233826,
+      0.09618545323610306,
+      0.6191310286521912
+    ],
+    "bytes": 5100551
+  },
+  "ReefSponges": {
+    "triangles": 7808,
+    "materials": 3,
+    "sizeMetersBlenderXYZ": [
+      0.4559950828552246,
+      0.23495076596736908,
+      0.5883426070213318
+    ],
+    "bytes": 4251033
+  },
+  "ReefKelp": {
+    "triangles": 7776,
+    "materials": 4,
+    "sizeMetersBlenderXYZ": [
+      0.40844088792800903,
+      0.17106015980243683,
+      0.6523995399475098
+    ],
+    "bytes": 5415374
+  },
+  "CavernAmethyst": {
+    "triangles": 24064,
+    "materials": 3,
+    "sizeMetersBlenderXYZ": [
+      0.5205812454223633,
+      0.14201150834560394,
+      0.5781773924827576
+    ],
+    "bytes": 2802055
+  },
+  "CavernQuartz": {
+    "triangles": 7336,
+    "materials": 3,
+    "sizeMetersBlenderXYZ": [
+      0.483994722366333,
+      0.19523732364177704,
+      0.5616810917854309
+    ],
+    "bytes": 2026300
+  },
+  "CavernCopper": {
+    "triangles": 18608,
+    "materials": 3,
+    "sizeMetersBlenderXYZ": [
+      0.46549248695373535,
+      0.13104148209095,
+      0.5611352324485779
+    ],
+    "bytes": 4417665
+  },
+  "WoodlandShelves": {
+    "triangles": 24944,
+    "materials": 3,
+    "sizeMetersBlenderXYZ": [
+      0.3330269157886505,
+      0.20146282017230988,
+      0.6467834115028381
+    ],
+    "bytes": 6165036
+  },
+  "WoodlandOysters": {
+    "triangles": 33124,
+    "materials": 4,
+    "sizeMetersBlenderXYZ": [
+      0.3341401219367981,
+      0.2306690514087677,
+      0.6469781398773193
+    ],
+    "bytes": 5255284
+  },
+  "WoodlandFern": {
+    "triangles": 33416,
+    "materials": 3,
+    "sizeMetersBlenderXYZ": [
+      0.4826749265193939,
+      0.13948729634284973,
+      0.6478089094161987
+    ],
+    "bytes": 6299424
+  }
+}

@@ -3,7 +3,10 @@ import Foundation
 /// A deterministic pose sampler shared by AR, the preview, and animation validation.
 /// Every pose is absolute, so repeated interactions cannot accumulate transform drift.
 enum FriendReaction: String, CaseIterable {
-    case appear, greeting, pet, celebrate, chat, play
+    case appear, greeting, pet, celebrate, chat, play, puzzled, bubble, wiggle, plop
+    static func bloopMove(_ id: String) -> Self {
+        switch id { case "bubble": return .bubble; case "wiggle": return .wiggle; default: return .plop }
+    }
     var duration: Float {
         switch self {
         case .appear: return 1.1
@@ -12,6 +15,8 @@ enum FriendReaction: String, CaseIterable {
         case .celebrate: return 3.4
         case .chat: return 1.7
         case .play: return 3.2
+        case .puzzled: return 1.6
+        case .bubble, .wiggle, .plop: return 0.8
         }
     }
 }
@@ -80,10 +85,16 @@ struct FriendMotion {
         let t = time * friend.tempo
         let breath = sin(t * 2) * (reducedMotion ? 0.002 : 0.010)
         p.scale = [1 - breath * 0.4, 1 + breath, 1 - breath * 0.4]
-        p.position.y = reducedMotion ? 0 : sin(t * 2.2) * (friend == .glimlo ? 0.017 : 0.004)
+        let floatHeight: Float = friend == .pufflo ? 0.010 : (friend == .glimlo ? 0.008 : 0.002)
+        p.position.y = reducedMotion ? 0 : (sin(t * 2.2) + 1) * 0.5 * floatHeight
         p.rotation.z = reducedMotion ? 0 : sin(t * 1.2) * 0.018
         p.appendage = reducedMotion ? 0 : sin(t * (friend == .glimlo ? 9 : 2.4)) * (friend == .glimlo ? 0.26 : 0.07)
         p.tail = reducedMotion ? 0 : sin(t * 2.8) * 0.16
+        if !reducedMotion && friend == .pufflo {
+            p.rotation.x = sin(t * 1.6) * 0.045
+            p.appendage = sin(t * 3.2) * 0.15
+        }
+        if !reducedMotion && friend == .dottli { p.appendage = sin(t * 4.2) * 0.09 }
         let phase = (time + Float(RealmFriend.allCases.firstIndex(of: friend) ?? 0) * 0.61).truncatingRemainder(dividingBy: 4.7)
         if phase < 0.20 { p.eyes = 1 - 0.94 * pow(sin(.pi * phase / 0.20), 2) }
         if speaking { p.mouth = 1 + 0.35 * pow(sin(time * 13), 2); p.rotation.x += sin(time * 5) * (reducedMotion ? 0 : 0.02) }
@@ -116,12 +127,14 @@ struct FriendMotion {
             p.mouth += envelope * 0.15
             p.appendage += sin(u * .pi * 8) * envelope * 0.16
             p.tail += sin(u * .pi * 10) * envelope * 0.35
+            if friend == .trufflet { p.rotation.x += envelope * 0.12; p.tail += envelope * 0.20 }
             p.effect = envelope
             p.effectProgress = u
         case .celebrate, .play:
-            let jumps: Float = friend == .pebblin ? 1 : (friend == .nibbi ? 3 : 2)
+            let jumps: Float = (friend == .pebblin || friend == .trufflet) ? 1 : ((friend == .nibbi || friend == .dottli) ? 3 : 2)
             let hop = pow(sin(u * .pi * jumps), 2) * envelope
-            let height: Float = friend == .pebblin ? 0.025 : (friend == .glimlo ? 0.09 : 0.075)
+            let height: Float = (friend == .pebblin || friend == .trufflet) ? 0.025 : ((friend == .glimlo || friend == .pufflo) ? 0.09 : 0.075)
+            if friend == .pufflo { p.rotation.x += sin(u * .pi * 4) * envelope * 0.14 }
             p.position.y += hop * height
             p.scale.y += sin(u * .pi * jumps * 2) * envelope * 0.07
             p.scale.x -= sin(u * .pi * jumps * 2) * envelope * 0.03
@@ -138,6 +151,21 @@ struct FriendMotion {
             p.rotation.x += sin(u * .pi * 4) * envelope * 0.055
             p.rotation.z += envelope * 0.07
             p.mouth += pow(sin(u * .pi * 10), 2) * envelope * 0.3
+        case .puzzled:
+            p.rotation.z += sin(u * .pi * 3) * envelope * 0.16
+            p.appendage -= envelope * 0.25
+            p.mouth += envelope * 0.3
+        case .bubble:
+            p.scale *= 1 + envelope * 0.06
+            p.position.y += envelope * 0.055
+            p.mouth += envelope * 0.5
+        case .wiggle:
+            p.rotation.z += sin(u * .pi * 6) * envelope * 0.22
+            p.tail += sin(u * .pi * 8) * envelope * 0.5
+        case .plop:
+            p.scale.y -= envelope * 0.17
+            p.scale.x += envelope * 0.08
+            p.position.y += sin(u * .pi) * 0.04
         }
         return p
     }

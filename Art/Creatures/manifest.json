@@ -88,5 +88,51 @@
       "Cindlet__Mouth",
       "Cindlet__Tail"
     ]
+  },
+  "Pufflo": {
+    "triangles": 43872,
+    "meshes": 12,
+    "heightMeters": 0.356,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true,
+    "textures": 1,
+    "motionControls": [
+      "Pufflo__AppendageL",
+      "Pufflo__AppendageR",
+      "Pufflo__EyeL",
+      "Pufflo__EyeR",
+      "Pufflo__Mouth",
+      "Pufflo__Tail"
+    ]
+  },
+  "Trufflet": {
+    "triangles": 43588,
+    "meshes": 10,
+    "heightMeters": 0.414,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true,
+    "textures": 2,
+    "motionControls": [
+      "Trufflet__EyeL",
+      "Trufflet__EyeR",
+      "Trufflet__Mouth",
+      "Trufflet__Shell"
+    ]
+  },
+  "Dottli": {
+    "triangles": 52072,
+    "meshes": 15,
+    "heightMeters": 0.448,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true,
+    "textures": 1,
+    "motionControls": [
+      "Dottli__AppendageL",
+      "Dottli__AppendageR",
+      "Dottli__EyeL",
+      "Dottli__EyeR",
+      "Dottli__Mouth",
+      "Dottli__Tail"
+    ]
   }
 }

@@ -14,7 +14,8 @@ for name in manifest.keys.sorted() {
     let entity = try Entity.load(contentsOf: folder.appendingPathComponent(name + ".usdz"))
     let bounds = entity.visualBounds(relativeTo: nil)
     let size = bounds.extents
-    precondition(size.y > 0.3 && size.y < 0.6, "Incorrect size: \(name)")
+    // The wide cloud whale has a shorter silhouette than the upright friends.
+    precondition(size.y > 0.25 && size.y < 0.6, "Incorrect size: \(name)")
     var models = 0
     var paintedModels = 0
     var continuousBodies = 0
@@ -40,4 +41,4 @@ for name in manifest.keys.sorted() {
     precondition(paintedModels == expected.textures, "Paint textures did not load: \(name)")
     print("\(name): \(models) model entities, \(size) meters, \(paintedModels) painted materials loaded")
 }
-print("All six assets and their motion controls load in RealityKit.")
+print("All roster assets and their motion controls load in RealityKit.")

@@ -2,10 +2,20 @@ import XCTest
 @testable import AdventureCore
 
 final class FriendMotionTests: XCTestCase {
+    func testIdleHoverStaysWithinOneCentimeterAboveSupport() {
+        for friend in RealmFriend.allCases {
+            for frame in 0..<600 {
+                let pose = FriendMotion.sample(friend: friend, time: Float(frame) / 30, reaction: nil, age: 0)
+                XCTAssertGreaterThanOrEqual(pose.position.y, 0)
+                XCTAssertLessThanOrEqual(pose.position.y, 0.010)
+            }
+        }
+    }
+
     func testEveryFriendHasDistinctQuestAndSavedIdentity() throws {
-        XCTAssertEqual(RealmFriend.allCases.count, 6)
-        XCTAssertEqual(Set(RealmFriend.allCases.map(\.reward)).count, 6)
-        XCTAssertEqual(Set(RealmFriend.allCases.map(\.itemName)).count, 6)
+        XCTAssertEqual(RealmFriend.allCases.count, 9)
+        XCTAssertEqual(Set(RealmFriend.allCases.map(\.reward)).count, RealmFriend.allCases.count)
+        XCTAssertEqual(Set(RealmFriend.allCases.map(\.itemName)).count, RealmFriend.allCases.count)
         for friend in RealmFriend.allCases {
             XCTAssertEqual(try JSONDecoder().decode(RealmFriend.self, from: JSONEncoder().encode(friend)), friend)
             XCTAssertTrue(friend.questRequest.contains(friend.itemName))

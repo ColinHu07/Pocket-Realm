@@ -11,6 +11,7 @@ from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from server import validate_friend, FRIENDS, Handler, ThreadingHTTPServer, RequestTrace, PROVIDER_BUDGET_SECONDS, generate_plan, make_request, parse_response, validate_scan, validate_room_context
+from server import QUESTS, validate_challenge, validate_quest_version
 
 
 SCAN = {"candidates": [
@@ -24,6 +25,53 @@ ROOM_FIXTURE = json.loads((Path(__file__).resolve().parents[1] / "Tests/Fixtures
 
 def response(plan=PLAN):
     return {"status": "completed", "steps": [{"type": "model_output", "content": [{"type": "text", "text": json.dumps(plan)}]}]}
+
+
+class QuestPlanningTests(unittest.TestCase):
+    def test_shared_swift_blueprints_and_schema_are_friend_specific(self):
+        fixtures = json.loads((Path(__file__).resolve().parents[1] / "Tests/Fixtures/quest-plans.json").read_text())
+        self.assertEqual({f["challenge"]["blueprintID"] for f in fixtures}, {key for variants in QUESTS.values() for key in variants})
+        for fixture in fixtures:
+            friend, challenge = fixture["friend"], fixture["challenge"]
+            self.assertEqual(validate_challenge(challenge, friend), challenge)
+            payload = make_request(*validate_scan(SCAN), friend=friend, quest_version=1)
+            schema = payload["response_format"]["schema"]
+            self.assertIn("challenge", schema["required"])
+            self.assertEqual(schema["properties"]["challenge"]["properties"]["blueprintID"]["enum"], list(QUESTS[friend]))
+            self.assertIn("do not invent ingredients", payload["input"][0]["text"])
+            plan = {**PLAN, "challenge": challenge}
+            self.assertEqual(parse_response(response(plan), SCAN["candidates"], friend=friend, quest_version=1), plan)
+
+    def test_missing_malformed_and_other_friends_puzzles_are_rejected(self):
+        invalid = [None, [], {}, {"blueprintID": []},
+                   {"blueprintID": "bloopi-ripple", "introduction": "Let's bake!"},
+                   {"blueprintID": "nibbi-cocoa", "introduction": " "},
+                   {"blueprintID": "nibbi-cocoa", "introduction": "x" * 241},
+                   {"blueprintID": "nibbi-cocoa", "introduction": "Hi", "solved": True}]
+        for challenge in invalid:
+            with self.subTest(challenge=challenge), self.assertRaises(ValueError):
+                parse_response(response({**PLAN, "challenge": challenge}), SCAN["candidates"], friend="Nibbi", quest_version=1)
+
+    def test_old_clients_and_fetch_quests_keep_their_contract(self):
+        for friend, version in [("Nibbi", 0), ("Mosskip", 1)]:
+            payload = make_request(*validate_scan(SCAN), friend=friend, quest_version=version)
+            self.assertNotIn("challenge", payload["response_format"]["schema"]["properties"])
+            self.assertEqual(parse_response(response(), SCAN["candidates"], friend=friend, quest_version=version), PLAN)
+        self.assertEqual(validate_quest_version({}), 0)
+        for version in (True, -1, 2, "1", None):
+            with self.subTest(version=version), self.assertRaises(ValueError):
+                validate_quest_version({"questVersion": version})
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key"})
+    def test_quest_is_in_same_room_plan_provider_call(self):
+        scan = {**ROOM_FIXTURE["scan"], "friend": "Cindlet", "questVersion": 1}
+        plan = {**ROOM_FIXTURE["plan"], "challenge": {"blueprintID": "cindlet-toast", "introduction": "Let's bake some cozy toast!"}}
+        with patch("server.urlopen", return_value=io.BytesIO(json.dumps(response(plan)).encode())) as provider:
+            self.assertEqual(generate_plan(scan), plan)
+            self.assertEqual(provider.call_count, 1)
+            schema = json.loads(provider.call_args.args[0].data)["response_format"]["schema"]
+            self.assertIn("room", schema["required"])
+            self.assertIn("challenge", schema["required"])
 
 
 class PlanningTests(unittest.TestCase):

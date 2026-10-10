@@ -2,6 +2,35 @@ import XCTest
 @testable import AdventureCore
 
 final class AdventureTests: XCTestCase {
+    func testReplayCannotBypassScanningPlanningOrRelocalization() {
+        var game = Adventure()
+        XCTAssertFalse(game.replayRoom())
+        game.finishScan()
+        XCTAssertFalse(game.replayRoom())
+        game = Adventure()
+        game.beginRestoring()
+        XCTAssertFalse(game.replayRoom())
+        XCTAssertEqual(game.phase, .restoring)
+    }
+
+    func testReplayRestartsCompletedEncounterWithoutAnotherScanOrPlan() {
+        var game = Adventure()
+        game.finishScan(); game.acceptPlan(); game.beginExploring()
+        XCTAssertTrue(game.reveal(trackingReady: true, proximitySatisfied: true))
+        XCTAssertTrue(game.talk(trackingReady: true, inReach: true))
+        XCTAssertTrue(game.collect(trackingReady: true, inReach: true))
+        XCTAssertTrue(game.finishQuest(trackingReady: true, inReach: true))
+        XCTAssertTrue(game.replayRoom(challenge: QuestGame(blueprint: .nibbiMint)))
+        XCTAssertEqual(game.phase, .ready)
+        XCTAssertEqual(game.challenge?.blueprint, .nibbiMint)
+        XCTAssertFalse(game.reveal(trackingReady: true, proximitySatisfied: true))
+        game.beginExploring()
+        XCTAssertFalse(game.reveal(trackingReady: false, proximitySatisfied: true))
+        XCTAssertTrue(game.replayRoom())
+        XCTAssertNil(game.challenge)
+        XCTAssertEqual(game.phase, .ready)
+    }
+
     func testScanAndPlanMustFinishBeforeReveal() {
         var game = Adventure()
         game.acceptPlan()

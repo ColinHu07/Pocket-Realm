@@ -10,19 +10,33 @@ ART=ROOT/'Art'/'Creatures'
 bpy.ops.wm.open_mainfile(filepath=str(ART/'PocketRealm-Friends.blend'))
 bpy.context.preferences.filepaths.save_version=0
 scene=bpy.context.scene
+new_trio='--new-trio' in sys.argv
 
 def render_reel():
     scene.render.engine='CYCLES'
     scene.cycles.device='CPU'; scene.cycles.samples=4; scene.cycles.use_denoising=True
-    scene.render.threads_mode='FIXED'; scene.render.threads=2
+    scene.render.threads_mode='FIXED'; scene.render.threads=4
+    scene.render.use_persistent_data=True
     scene.render.resolution_x=960; scene.render.resolution_y=360
+    if new_trio:
+        names=('Pufflo','Trufflet','Dottli')
+        all_names=json.loads((ART/'manifest.json').read_text())
+        for name in all_names:
+            root=bpy.data.objects[name]
+            for obj in (root,*root.children_recursive): obj.hide_render=name not in names
+        center=sum(bpy.data.objects[name].location.x for name in names)/len(names)
+        scene.camera.location=(center+.25,-4.5,1.20)
+        scene.camera.rotation_euler=(Vector((center,0,.24))-scene.camera.location).to_track_quat('-Z','Y').to_euler()
+        scene.camera.data.ortho_scale=2.25
+        scene.render.resolution_y=420
+        for light in [obj for obj in scene.objects if obj.type=='LIGHT']: light.location.x+=center
     scene.render.resolution_percentage=100
     scene.render.image_settings.file_format='PNG'; scene.render.image_settings.color_mode='RGB'
     temporary=ROOT/'build'/'friend-preview-frame.png'
     scene.render.filepath=str(temporary)
     ffmpeg=shutil.which('ffmpeg') or '/opt/homebrew/bin/ffmpeg'
-    output=ART/'friends-reactions.mp4'
-    staging=ROOT/'build'/'friends-reactions.partial.mp4'
+    output=ART/('friends-new-reactions.mp4' if new_trio else 'friends-reactions.mp4')
+    staging=ROOT/'build'/('friends-new-reactions.partial.mp4' if new_trio else 'friends-reactions.partial.mp4')
     command=[ffmpeg,'-y','-loglevel','error','-f','image2pipe','-vcodec','png','-r',str(scene.render.fps),'-i','-',
              '-c:v','libx264','-threads','2','-pix_fmt','yuv420p','-crf','21','-movflags','+faststart',str(staging)]
     process=subprocess.Popen(command,stdin=subprocess.PIPE)
@@ -95,7 +109,7 @@ for frame in samples['frames']:
                 o.rotation_quaternion=base_rotation @ Quaternion(axis,p['appendage']*side)
                 if name=='Nibbi': o.rotation_quaternion @= Quaternion((1,0,0),p['appendage']*.4)
             elif label=='Tail': o.rotation_quaternion=base_rotation @ Quaternion((0,1,0),p['tail'])
-            elif label=='Shell': o.rotation_quaternion=base_rotation @ Quaternion((0,0,1),p['tail']*.15)
+            elif label=='Shell': o.rotation_quaternion=base_rotation @ Quaternion((0,0,1),p['tail']*(.65 if name=='Trufflet' else .15))
             for path in ('rotation_quaternion','scale'): o.keyframe_insert(path,frame=f)
         for isheart,i,o in particles[name]:
             progress=(p['effectProgress']-i*.045)/.72
@@ -110,6 +124,7 @@ for frame in samples['frames']:
             o.keyframe_insert('location',frame=f); o.keyframe_insert('scale',frame=f)
 
 scene.render.fps=samples['fps']; scene.frame_start=1; scene.frame_end=len(samples['frames'])
+scene.timeline_markers.clear()
 for frame,label in ((1,'Arrive'),(19,'Hello'),(49,'Pet'),(75,'Play'),(117,'Quest complete')):
     scene.timeline_markers.new(label,frame=frame)
 scene.frame_set(30)

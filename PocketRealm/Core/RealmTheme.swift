@@ -1,13 +1,68 @@
 import Foundation
 
 enum RealmTheme: String, Codable, CaseIterable, Identifiable {
-    case original, jungle
+    case original, jungle, reef, cavern, woodland
 
     var id: String { rawValue }
-    var name: String { self == .jungle ? "Jungle" : "Original" }
-    var symbol: String { self == .jungle ? "leaf.fill" : "house.fill" }
+    var name: String {
+        switch self {
+        case .original: return "Original"
+        case .jungle: return "Jungle"
+        case .reef: return "Coral Reef"
+        case .cavern: return "Crystal Cavern"
+        case .woodland: return "Woodland"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .original: return "house.fill"
+        case .jungle: return "leaf.fill"
+        case .reef: return "water.waves"
+        case .cavern: return "mountain.2.fill"
+        case .woodland: return "tree.fill"
+        }
+    }
     var subtitle: String {
-        self == .jungle ? "Leafy wall vines, hanging ferns, and soft blooms." : "Your familiar room, with a little magic."
+        switch self {
+        case .original: return "Your familiar room, with a little magic."
+        case .jungle: return "Leafy wall vines, hanging ferns, and soft blooms."
+        case .reef: return "Rose coral fans, golden kelp, and hollow reef sponges."
+        case .cavern: return "Amethyst pockets, smoky quartz, and copper in weathered rock."
+        case .woodland: return "Layered mushrooms, curled ferns, and lichen-covered bark."
+        }
+    }
+
+    var previewImage: String? {
+        switch self {
+        case .original, .jungle: return nil
+        case .reef: return "ThemeReef"
+        case .cavern: return "ThemeCavern"
+        case .woodland: return "ThemeWoodland"
+        }
+    }
+
+    struct Asset {
+        let name: String
+        let directory: String
+        /// Conservative export budget, verified against the Blender manifest.
+        let triangles: Int
+    }
+
+    /// Reuse the validated wall-density plan for every preset. Older saved scans remain compatible.
+    func assets(palette: JunglePlan.Palette) -> [Asset] {
+        let shapes: [(String, Int)]
+        switch self {
+        case .original: return []
+        case .jungle:
+            let prefix = palette == .forest ? "Forest" : "Tropical"
+            return zip(["Trail", "Bloom", "Fern"], [11_000, 25_000, 25_000]).map {
+                Asset(name: prefix + $0.0, directory: "Jungle", triangles: $0.1)
+            }
+        case .reef: shapes = [("ReefFan", 25_000), ("ReefSponges", 8_000), ("ReefKelp", 8_000)]
+        case .cavern: shapes = [("CavernAmethyst", 25_000), ("CavernQuartz", 8_000), ("CavernCopper", 19_000)]
+        case .woodland: shapes = [("WoodlandShelves", 25_000), ("WoodlandOysters", 34_000), ("WoodlandFern", 34_000)]
+        }
+        return shapes.map { Asset(name: $0.0, directory: "Themes", triangles: $0.1) }
     }
 }
 

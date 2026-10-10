@@ -2,15 +2,16 @@ import RealityKit
 import RoomPlan
 import UIKit
 
-/// Places bundled Blender botanicals only on observed wall patches. Never covers floors.
+/// Places bundled Blender decorations only on observed wall patches. Never covers floors.
 enum ThemeFactory {
     struct Result {
+        let theme: RealmTheme
         let anchor: AnchorEntity
         let clusterCount: Int
         var hasContent: Bool { clusterCount > 0 }
         var message: String {
-            hasContent ? "Vines and blooms follow the visible walls in your scan."
-                : "No clear wall patches for foliage yet. Rescan while looking at more open wall space."
+            hasContent ? "\(theme.name) decorations follow the visible walls in your scan."
+                : "No clear wall patches for decorations yet. Rescan while looking at more open wall space."
         }
     }
 
@@ -49,24 +50,25 @@ enum ThemeFactory {
         return RoomScanContext(surfaces: floors + walls + Array(apertures), obstacles: obstacles)
     }
 
-    static func jungle(in room: CapturedRoom, observer: SIMD3<Float>, plan: JunglePlan,
+    static func make(_ theme: RealmTheme, in room: CapturedRoom, observer: SIMD3<Float>, plan: JunglePlan,
                        questPositions: [SIMD3<Float>], observations: [WallObservation]) throws -> Result {
         let anchor = AnchorEntity(world: .zero)
-        anchor.name = "Jungle wall botanicals"
+        anchor.name = "\(theme.name) wall decorations"
         let furniture = room.objects.map { DecorationVolume(inverse: simd_inverse($0.transform), half: $0.dimensions / 2) }
         let apertures = (room.doors + room.openings + room.windows).map {
             DecorationVolume(inverse: simd_inverse($0.transform), half: SIMD3($0.dimensions.x / 2, $0.dimensions.y / 2, 0.35))
         }
-        let prefix = plan.palette == .forest ? "Forest" : "Tropical"
-        let models = try ["Trail", "Bloom", "Fern"].map { shape -> Entity in
-            guard let url = Bundle.main.url(forResource: prefix + shape, withExtension: "usdz", subdirectory: "Jungle") else {
-                throw PlanError.server("The Jungle models are missing. Rebuild the app with its Jungle assets.")
+        let assets = theme.assets(palette: plan.palette)
+        guard !assets.isEmpty else { return Result(theme: theme, anchor: anchor, clusterCount: 0) }
+        let models = try assets.map { asset -> Entity in
+            guard let url = Bundle.main.url(forResource: asset.name, withExtension: "usdz", subdirectory: asset.directory) else {
+                throw PlanError.server("The \(theme.name) models are missing. Rebuild the app with its theme assets.")
             }
             return try Entity.load(contentsOf: url)
         }
         var count = 0
         var triangleBudget = 350_000
-        let costs = [11_000, 25_000, 25_000]
+        let costs = assets.map(\.triangles)
         for wall in room.walls.sorted(by: { $0.identifier.uuidString < $1.identifier.uuidString }).prefix(24)
             where wall.confidence != .low && wall.curve == nil {
             guard let treatment = plan.walls.first(where: { $0.surfaceID == wall.identifier.uuidString }),
@@ -99,6 +101,7 @@ enum ThemeFactory {
                         guard triangleBudget >= costs[kind] else { continue }
                         let scale: Float = treatment.vines == .lush ? 0.95 : 0.78
                         let bounds = models[kind].visualBounds(relativeTo: models[kind])
+                        let depth = max(0, bounds.max.z * scale) + 0.025
                         let minX = min(bounds.min.x * side, bounds.max.x * side) * scale + x
                         let maxX = max(bounds.min.x * side, bounds.max.x * side) * scale + x
                         let low = SIMD2(minX, top + bounds.min.y * scale)
@@ -109,7 +112,7 @@ enum ThemeFactory {
                         let fits = WallVisibility.footprint(minimum: low, maximum: high, polygon: polygon) { p in
                             let point = world(SIMD3(p.x, p.y, side * 0.025), wall.transform)
                             return !apertures.contains { $0.contains(point, padding: 0.14) }
-                                && !furniture.contains { $0.contains(point, padding: 0.16) }
+                                && !furniture.contains { $0.contains(point, padding: max(0.16, depth + 0.04)) }
                                 && !questPositions.contains { simd_distance(point, $0) < 0.5 }
                                 && WallVisibility.observed(point, in: observations, blockers: blockers)
                         }
@@ -130,7 +133,7 @@ enum ThemeFactory {
                 }
             }
         }
-        return Result(anchor: anchor, clusterCount: count)
+        return Result(theme: theme, anchor: anchor, clusterCount: count)
     }
 
     private static func surfaceCorners(_ surface: CapturedRoom.Surface) -> [SIMD3<Float>] {

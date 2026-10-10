@@ -19,7 +19,8 @@ for name in manifest:
     assert UsdGeom.GetStageUpAxis(stage)=='Y'
     assert UsdGeom.GetStageMetersPerUnit(stage)==1
     assert all(isfinite(x) and .1<x<.8 for x in size)
-    assert .3<size[1]<.6
+    # The wide cloud whale has a shorter silhouette than the upright friends.
+    assert .25<size[1]<.6
     triangles=sum(sum(n-2 for n in UsdGeom.Mesh(p).GetFaceVertexCountsAttr().Get()) for p in meshes)
     assert triangles==manifest[name]['triangles'] and triangles<110_000
     bodies=[p for p in meshes if f'{name}_continuous_body' in str(p.GetPath())]

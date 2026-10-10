@@ -35,7 +35,7 @@ final class RoomUnderstandingTests: XCTestCase {
     func testLegacyQuestOnlyResponseCannotStartNewFlow() throws {
         let value = try fixture { $0.removeValue(forKey: "room") }
         XCTAssertThrowsError(try validate(value)) { error in
-            XCTAssertTrue(error.localizedDescription.contains("Restart server/server.py"))
+            XCTAssertTrue(error.localizedDescription.contains("didn't finish the room plan"))
         }
     }
 

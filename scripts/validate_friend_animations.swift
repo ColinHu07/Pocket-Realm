@@ -8,13 +8,17 @@ import RealityKit
         for friend in RealmFriend.allCases {
             let root = Entity()
             root.addChild(try Entity.load(contentsOf: folder.appendingPathComponent(friend.name + ".usdz")))
-            let animator = CreatureAnimator(root: root, friend: friend)
+            let surface = Entity()
+            surface.position = [1.2, 0.75, -2]
+            surface.addChild(root)
+            let geometry = Array(root.children)
+            let animator = CreatureAnimator(root: root, friend: friend, grounded: true)
             let labels = ["EyeL", "EyeR", "Mouth", "AppendageL", "AppendageR", "Tail", "Shell"]
             let controls = labels.compactMap { root.findEntity(named: friend.name + "__" + $0) }
             let pivots = controls.map { $0.position(relativeTo: root) }
             precondition(controls.count >= 4)
             for reaction in FriendReaction.allCases {
-                // Settle any previous reaction so all six motions run to completion.
+                // Settle the previous reaction so every motion runs to completion.
                 for _ in 0..<40 { animator.update(delta: 0.1) }
                 precondition(animator.react(reaction))
                 for frame in 0..<240 {
@@ -28,12 +32,19 @@ import RealityKit
                         let size = root.visualBounds(relativeTo: nil).extents
                         precondition(size.x.isFinite && size.y.isFinite && size.z.isFinite)
                         precondition(size.x < 1.2 && size.y < 1.2 && size.z < 1.2, "Exploding animation: \(friend)")
+                        let bottom = geometry.map { $0.visualBounds(relativeTo: surface).min.y }.min()!
+                        precondition(bottom >= 0.0078 && bottom < 0.15, "Lost surface contact: \(friend) \(reaction), \(bottom)")
                     }
                 }
                 precondition(animator.motion.reaction == nil)
                 precondition(root.children.filter { $0.name == "PetHeart" || $0.name == "RewardStar" }.allSatisfy { !$0.isEnabled })
+                let idleBottom = geometry.map { $0.visualBounds(relativeTo: surface).min.y }.min()!
+                precondition(idleBottom <= 0.0182, "Idle floating above surface: \(friend), \(idleBottom)")
             }
-            print("\(friend.name): all six reactions complete; \(controls.count) pivots stay attached; particles clean up.")
+            animator.update(delta: 0, reducedMotion: true)
+            let reducedBottom = geometry.map { $0.visualBounds(relativeTo: surface).min.y }.min()!
+            precondition(abs(reducedBottom - 0.008) < 0.0002)
+            print("\(friend.name): all \(FriendReaction.allCases.count) reactions complete; \(controls.count) pivots stay attached; surface contact and particle cleanup verified.")
         }
         print("ALL_FRIEND_ANIMATIONS_VALID")
     }

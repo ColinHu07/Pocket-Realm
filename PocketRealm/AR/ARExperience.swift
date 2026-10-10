@@ -24,11 +24,14 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var proximity = ProximityGate()
     @Published private(set) var selectedCategory = ""
     @Published private(set) var requesting = false
-    @Published var serverAddress = UserDefaults.standard.string(forKey: "adventureServer") ?? "" {
-        didSet { UserDefaults.standard.set(serverAddress, forKey: "adventureServer") }
-    }
+    @Published private(set) var provider = PlanningProvider.saved(UserDefaults.standard.string(forKey: "planningProvider"))
+    @Published private(set) var museModel = MuseModel(rawValue: UserDefaults.standard.string(forKey: "museModel") ?? "") ?? .spark13
+    @Published private(set) var hasAPIKey = false
+    @Published private(set) var geminiModel = GeminiModel(rawValue: UserDefaults.standard.string(forKey: "geminiModel") ?? "") ?? .flash38
+    @Published private(set) var connectionState: PlanningConnectionState = .needsKey
     @Published var connectionPresented = false
     @Published var themePresented = false
+    @Published private(set) var challengePanelVisible = true
     @Published private(set) var theme = RealmTheme(rawValue: UserDefaults.standard.string(forKey: "realmTheme") ?? "") ?? .original
     @Published private(set) var themeMessage = "Choose a look for your room."
     @Published private(set) var friend: RealmFriend = .mosskip
@@ -36,6 +39,12 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var questDistance: Float?
     @Published private(set) var dialogue: String?
     @Published private(set) var completedFriends: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "realmFriendships") ?? [])
+    @Published private(set) var savedRoomDate: Date?
+    @Published private(set) var savedRoomNotice: String?
+    @Published private(set) var roomSaveMessage: String?
+    @Published private(set) var savingRoom = false
+    @Published private(set) var usingSavedRoom = false
+    @Published private(set) var restoreMessage = "Point the camera around the same room to line everything up."
 
     let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let supported = RoomCaptureSession.isSupported
@@ -48,6 +57,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var questAnchor: AnchorEntity?
     private var questWorldAnchor: ARAnchor?
     private var keepsake: Entity?
+    private var questReward: Entity?
     private var themeRoom: CapturedRoom?
     private var roomContext: RoomScanContext?
     private var themeObserver: SIMD3<Float> = .zero
@@ -61,6 +71,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var scanNeedsRestart = false
     private var generation = UUID()
     private var planTask: Task<Void, Never>?
+    private var connectionTask: Task<Void, Never>?
     private var candidates: [RoomCandidate] = []
     private var spawnTransforms: [String: simd_float4x4] = [:]
     private var cameraPositions: [SIMD3<Float>] = []
@@ -71,18 +82,57 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var photoSectors: Set<Int> = []
     private let imageContext = CIContext(options: [.cacheIntermediates: false])
     private let speech = AVSpeechSynthesizer()
+    private let roomStore = SavedRoomStore.local
+    private var storedRoom: SavedRoom?
+    private var replayRoom: RoomPlanReplay?
+    private var restoringRoom: SavedRoom?
+    private var restoreGate = RoomRelocalizationGate()
+    private var restoreStarted: Double = 0
+    private var restoreAfterFrame: TimeInterval = -.infinity
+    private var roomNeedsSaving = false
+    private var lastSaveAttempt: Double = -.infinity
+    private var roomSaveToken = UUID()
 
     var phase: Adventure.Phase { game.phase }
+    var testingConnection: Bool { connectionState.isChecking }
+    var planningClient: PlanningClient {
+        PlanningClient(provider: provider, muse: MuseClient(model: museModel), gemini: GeminiClient(model: geminiModel))
+    }
+    var modelName: String { planningClient.modelName }
     var inReach: Bool { anchor?.isAnchored == true && (distance ?? .infinity) <= 2 }
     var itemInReach: Bool { questAnchor?.isAnchored == true && (questDistance ?? .infinity) <= 1.3 }
     var objectiveDistance: Float? { phase == .questing ? questDistance : distance }
     var canRetryPlan: Bool { !candidates.isEmpty && roomContext != nil && !photos.isEmpty && !requesting }
-    var addressIsValid: Bool { (try? AdventureClient.endpoint(serverAddress)) != nil }
+    var canReplayRoom: Bool {
+        started && replayRoom != nil && roomContext != nil && themeRoom != nil &&
+            ![.scanning, .planning, .restoring].contains(phase) && !requesting && !failed
+    }
+    var challengeAvailable: Bool { trackingReady && inReach && challengePanelVisible && !suspended && !interrupted && !themePresented && !connectionPresented }
+
+    func setChallengePanelVisible(_ visible: Bool) {
+        guard challengePanelVisible != visible else { return }
+        challengePanelVisible = visible
+        // Don't let Bloopi demonstrate moves behind a tucked-away drawer.
+        if !visible { game.advanceChallenge(delta: 0, available: false) }
+    }
 
     override init() {
         super.init()
+        do {
+            hasAPIKey = try PlannerKeyStore.read(for: provider) != nil
+            connectionState = hasAPIKey ? .saved : .needsKey
+        } catch { connectionState = .failed(error.localizedDescription) }
+        if ProcessInfo.processInfo.arguments.contains("--gemini-setup") {
+            selectProvider(.gemini); connectionPresented = true
+        } else if ProcessInfo.processInfo.arguments.contains("--muse-setup") {
+            selectProvider(.muse); connectionPresented = true
+        }
         arView.session.delegate = self
         arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapFriend(_:))))
+        do {
+            storedRoom = try roomStore.load()
+            savedRoomDate = storedRoom?.savedAt
+        } catch { savedRoomNotice = error.localizedDescription }
         applyTheme()
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             Task { @MainActor [weak self] in self?.tick(event.deltaTime) }
@@ -91,7 +141,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     func start() {
         guard supported else { issue = "Room scanning needs a LiDAR-equipped iPhone Pro or iPad Pro. Run on your iPhone instead of the simulator."; return }
-        guard addressIsValid else { connectionPresented = true; return }
+        guard hasAPIKey else { connectionPresented = true; return }
         Task {
             guard await AVCaptureDevice.requestAccess(for: .video) else {
                 cameraDenied = true
@@ -104,8 +154,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         }
     }
 
-    private func configure(reset: Bool) {
+    private func configure(reset: Bool, worldMap: ARWorldMap? = nil) {
         let configuration = ARWorldTrackingConfiguration()
+        configuration.initialWorldMap = worldMap
         configuration.planeDetection = [.horizontal, .vertical]
         configuration.environmentTexturing = .automatic
         if ARWorldTrackingConfiguration.supportsFrameSemantics(.sceneDepth) {
@@ -119,7 +170,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     func rescan() {
+        guard hasAPIKey else { connectionPresented = true; return }
         generation = UUID()
+        resetRoomPersistenceState()
         planTask?.cancel()
         planTask = nil
         capture?.delegate = nil
@@ -136,6 +189,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         anchor = nil
         worldAnchor = nil
         creature = nil
+        questReward = nil
         candidates = []
         spawnTransforms = [:]
         cameraPositions = []
@@ -145,6 +199,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         planningError = nil
         issue = nil
         failed = false
+        suspended = false
         interrupted = false
         requesting = false
         scanNeedsRestart = false
@@ -164,10 +219,138 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         session.run(configuration: .init())
     }
 
+    /// Reuse geometry and the spatial plan. This path never calls the server.
+    func useSavedRoom() {
+        guard supported else { issue = "Open the saved room on your LiDAR-equipped iPhone."; return }
+        guard let snapshot = storedRoom else { return }
+        let token = generation
+        Task {
+            guard await AVCaptureDevice.requestAccess(for: .video) else {
+                cameraDenied = true; issue = "Allow camera access in Settings to recognize your saved room."; return
+            }
+            guard generation == token, storedRoom?.referenceAnchorID == snapshot.referenceAnchorID else { return }
+            do {
+                try snapshot.validate()
+                let room = try JSONDecoder().decode(CapturedRoom.self, from: snapshot.capturedRoom)
+                guard let map = try NSKeyedUnarchiver.unarchivedObject(ofClass: ARWorldMap.self, from: snapshot.worldMap),
+                      map.anchors.contains(where: { $0.identifier == snapshot.referenceAnchorID }) else { throw SavedRoomError.invalidData }
+                let context = ThemeFactory.context(for: room)
+                let observer = SIMD3(snapshot.observer[0], snapshot.observer[1], snapshot.observer[2])
+                // Rebuild support points from saved geometry, including rooms saved
+                // by versions that intentionally placed friends beside furniture in midair.
+                var transforms: [String: simd_float4x4] = [:]
+                var restoredCandidates: [RoomCandidate] = []
+                for candidate in snapshot.candidates {
+                    let previous = try SavedRoom.matrix(snapshot.transforms[candidate.id]!)
+                    // Retain the previously observed side of this furniture, even
+                    // when the scan finished facing the opposite side of the room.
+                    let facing = SIMD3(previous.columns.2.x, previous.columns.2.y, previous.columns.2.z)
+                    let placementObserver = position(previous) + facing * 2
+                    guard let object = room.objects.first(where: { $0.identifier.uuidString == candidate.id }),
+                          let transform = placement(for: object, in: room, observer: placementObserver, context: context) else { continue }
+                    transforms[candidate.id] = transform
+                    let point = position(transform)
+                    restoredCandidates.append(RoomCandidate(id: candidate.id, category: candidate.category,
+                        dimensions: candidate.dimensions, position: [point.x, point.y, point.z],
+                        distance: horizontalDistance(observer, point)))
+                }
+                let observations = try snapshot.observations.map { try $0.restore() }
+                let selected = snapshot.encounter(for: friend)
+                guard transforms[selected.objectID] != nil,
+                      let keepsakeID = selected.room?.keepsakeObjectID, transforms[keepsakeID] != nil else {
+                    throw PlanError.server("This saved room needs a clearer supporting surface. Scan again, including a tabletop and the floor beside furniture.")
+                }
+                try selected.validateRoom(against: restoredCandidates, surfaces: context.surfaces)
+                chooseAnotherFriend()
+                cameraDenied = false; started = true; usingSavedRoom = true
+                restoringRoom = snapshot
+                replayRoom = RoomPlanReplay(friend: snapshot.friend, plan: snapshot.plan, candidates: restoredCandidates)
+                themeRoom = room; roomContext = context
+                themeObserver = SIMD3(snapshot.observer[0], snapshot.observer[1], snapshot.observer[2])
+                candidates = restoredCandidates; spawnTransforms = transforms; wallObservations = observations
+                objectCount = candidates.count; plan = selected
+                selectedCategory = candidates.first { $0.id == selected.objectID }?.category ?? "furniture"
+                restoreGate = RoomRelocalizationGate(); restoreStarted = elapsed
+                restoreAfterFrame = arView.session.currentFrame?.timestamp ?? -.infinity
+                restoreMessage = "Look at the furniture and walls from roughly where you scanned before. No new AI request is needed."
+                game.beginRestoring()
+                configure(reset: true, worldMap: map)
+            } catch {
+                issue = "Couldn't open the saved room. \(error.localizedDescription) You can make a fresh scan."
+            }
+        }
+    }
+
+    func forgetSavedRoom() {
+        // Invalidate an outstanding world-map callback so Forget cannot be undone by a late save.
+        roomSaveToken = UUID(); roomNeedsSaving = false; savingRoom = false
+        do {
+            try roomStore.delete()
+            storedRoom = nil; savedRoomDate = nil; savedRoomNotice = nil
+            roomSaveMessage = "Saved room removed from this iPhone."
+        } catch { issue = "Couldn't remove the saved room: \(error.localizedDescription)" }
+    }
+
+    func saveRoomAgain() {
+        guard !savingRoom, ![.scanning, .planning, .restoring].contains(phase), plan != nil else { return }
+        roomNeedsSaving = true; lastSaveAttempt = -.infinity
+        saveRoomIfReady()
+    }
+
+    private func resetRoomPersistenceState() {
+        roomSaveToken = UUID(); roomNeedsSaving = false; savingRoom = false
+        roomSaveMessage = nil; usingSavedRoom = false; restoringRoom = nil
+        replayRoom = nil
+        restoreGate = RoomRelocalizationGate(); lastSaveAttempt = -.infinity
+    }
+
+    private func saveRoomIfReady() {
+        guard roomNeedsSaving, !savingRoom, elapsed - lastSaveAttempt >= 3,
+              let plan, let themeRoom, let roomContext, ![.scanning, .planning, .restoring].contains(phase) else { return }
+        lastSaveAttempt = elapsed
+        guard trackingReady, let frame = arView.session.currentFrame,
+              frame.worldMappingStatus == .mapped || frame.worldMappingStatus == .extending else {
+            roomSaveMessage = "Look around a little more so your room can be saved for next time."
+            return
+        }
+        savingRoom = true; roomSaveMessage = "Saving your room on this iPhone…"
+        let token = roomSaveToken
+        // Replaying another friend during this callback must not relabel the original generated puzzle.
+        let sourcePlan = replayRoom?.plan ?? plan
+        let sourceFriend = replayRoom?.friend ?? friend
+        arView.session.getCurrentWorldMap { [weak self] map, error in
+            Task { @MainActor [weak self] in
+                guard let self, self.roomSaveToken == token else { return }
+                self.savingRoom = false
+                self.roomNeedsSaving = false
+                do {
+                    if let error { throw error }
+                    guard let map else { throw SavedRoomError.invalidData }
+                    // Save a stable origin marker, not ephemeral quest/mesh anchors.
+                    let reference = ARAnchor(name: "PocketRealmSavedOrigin", transform: matrix_identity_float4x4)
+                    map.anchors = [reference]
+                    let snapshot = SavedRoom(savedAt: Date(), friend: sourceFriend, plan: sourcePlan,
+                        candidates: self.candidates, transforms: self.spawnTransforms.mapValues(SavedRoom.values),
+                        context: roomContext, observer: [self.themeObserver.x, self.themeObserver.y, self.themeObserver.z],
+                        observations: self.wallObservations.map(SavedWallObservation.init),
+                        capturedRoom: try JSONEncoder().encode(themeRoom),
+                        worldMap: try NSKeyedArchiver.archivedData(withRootObject: map, requiringSecureCoding: true),
+                        referenceAnchorID: reference.identifier)
+                    try self.roomStore.save(snapshot)
+                    self.storedRoom = snapshot; self.savedRoomDate = snapshot.savedAt; self.savedRoomNotice = nil
+                    self.roomSaveMessage = "Room saved on this iPhone. Reuse it next time without an AI request."
+                } catch {
+                    self.roomSaveMessage = "Room wasn't saved. Tap Save room to retry. Your current adventure can continue."
+                }
+            }
+        }
+    }
+
     func suspend() {
         guard started else { return }
         suspended = true
         trackingReady = false
+        game.advanceChallenge(delta: 0, available: false)
         _ = proximity.update(distance: .infinity, timestamp: elapsed, valid: false)
         speech.stopSpeaking(at: .immediate)
         if phase == .scanning {
@@ -208,9 +391,13 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         themeRoom = room
         themeObserver = camera
         let context = ThemeFactory.context(for: room)
+        candidates = []
+        spawnTransforms = [:]
         for object in room.objects.filter(Self.eligible).prefix(24) {
             let id = object.identifier.uuidString
-            let transform = spawnTransform(for: object, fallbackCamera: camera)
+            let center = position(object.transform)
+            let observer = cameraPositions.min(by: { horizontalDistance($0, center) < horizontalDistance($1, center) }) ?? camera
+            guard let transform = placement(for: object, in: room, observer: observer, context: context) else { continue }
             let point = position(transform)
             guard point.x.isFinite, point.y.isFinite, point.z.isFinite else { continue }
             let category = String(describing: object.category)
@@ -221,7 +408,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         }
         objectCount = candidates.count
         guard !candidates.isEmpty else {
-            planningError = "No clear furniture locations yet. Scan again and spend a few seconds looking at a cabinet, table, chair, sofa, or bed."
+            planningError = "No clear supporting surfaces yet. Scan again and include a tabletop or the floor beside furniture."
             return
         }
         guard context.surfaces.contains(where: { $0.kind == .floor || $0.kind == .wall }), !photos.isEmpty else {
@@ -232,47 +419,44 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         requestPlan()
     }
 
-    /// Uses a side observed during the scan, outside the furniture box. Gemini never supplies coordinates.
-    private func spawnTransform(for object: CapturedRoom.Object, fallbackCamera: SIMD3<Float>) -> simd_float4x4 {
-        let center = position(object.transform)
-        let observer = cameraPositions.min(by: { horizontalDistance($0, center) < horizontalDistance($1, center) }) ?? fallbackCamera
-        let localCamera = simd_inverse(object.transform) * SIMD4<Float>(observer, 1)
-        var direction = SIMD3<Float>(localCamera.x, 0, localCamera.z)
-        if simd_length(direction) < 0.01 { direction = [0, 0, 1] }
-        direction = simd_normalize(direction)
-        let half = object.dimensions / 2
-        let tx = half.x / max(abs(direction.x), 0.0001)
-        let tz = half.z / max(abs(direction.z), 0.0001)
-        var local = direction * min(tx, tz)
-        let normal: SIMD3<Float> = tx < tz ? [direction.x >= 0 ? 1 : -1, 0, 0] : [0, 0, direction.z >= 0 ? 1 : -1]
-        local += normal * 0.35
-        // The spirit floats near the visible furniture face, at an approachable height.
-        local.y = min(half.y - 0.1, max(-half.y + 0.15, localCamera.y - 0.65))
-        let world = object.transform * SIMD4<Float>(local, 1)
-        var facing = observer - SIMD3<Float>(world.x, world.y, world.z)
-        facing.y = 0
-        if simd_length(facing) < 0.01 { facing = [0, 0, 1] }
-        facing = simd_normalize(facing)
-        var transform = matrix_identity_float4x4
-        transform.columns.0 = SIMD4<Float>(simd_cross([0, 1, 0], facing), 0)
-        transform.columns.2 = SIMD4<Float>(facing, 0)
-        transform.columns.3 = world
+    private func placement(for object: CapturedRoom.Object, in room: CapturedRoom, observer: SIMD3<Float>,
+                           context: RoomScanContext) -> simd_float4x4? {
+        guard let transform = SurfacePlacement.transform(category: String(describing: object.category),
+            dimensions: object.dimensions, object: object.transform, observer: observer,
+            surfaces: context.surfaces) else { return nil }
+        // Reject a floor/table point occupied by other scanned furniture.
+        let point = position(transform) + SIMD3<Float>(0, 0.12, 0)
+        guard !room.objects.contains(where: { other in
+            other.identifier != object.identifier && DecorationVolume(inverse: simd_inverse(other.transform),
+                half: other.dimensions / 2).contains(point, padding: SurfacePlacement.footprintRadius)
+        }) else { return nil }
         return transform
+    }
+
+    private func refineSupport(_ transform: simd_float4x4) -> simd_float4x4 {
+        let query = ARRaycastQuery(origin: position(transform) + SIMD3<Float>(0, SurfacePlacement.refinementLimit + 0.02, 0),
+            direction: [0, -1, 0], allowing: .existingPlaneGeometry, alignment: .horizontal)
+        let hits = arView.session.raycast(query).map { position($0.worldTransform) }
+        return SurfacePlacement.refined(transform, hits: hits)
     }
 
     func requestPlan() {
         guard canRetryPlan, phase == .planning, let context = roomContext else { return }
-        guard addressIsValid else { connectionPresented = true; return }
+        let key: String
+        do {
+            guard let saved = try PlannerKeyStore.read(for: provider) else { hasAPIKey = false; connectionPresented = true; return }
+            key = saved
+        } catch { planningError = error.localizedDescription; return }
         requesting = true
         planningError = nil
         let token = generation
-        let address = serverAddress
         let input = candidates
         let images = photos
         let selectedFriend = friend
+        let client = planningClient
         planTask = Task { [weak self] in
             do {
-                let selected = try await AdventureClient.plan(address: address, candidates: input, photos: images, friend: selectedFriend, context: context)
+                let selected = try await client.plan(key: key, candidates: input, photos: images, friend: selectedFriend, context: context)
                 guard !Task.isCancelled, let self, self.generation == token, self.phase == .planning else { return }
                 self.requesting = false
                 self.install(selected)
@@ -284,6 +468,80 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         }
     }
 
+    func saveAPIKey(_ key: String) -> Bool {
+        guard !testingConnection, !requesting else { return false }
+        do {
+            try PlannerKeyStore.save(key, for: provider)
+            hasAPIKey = true
+            connectionState = .saved
+            return true
+        } catch { connectionState = .failed(error.localizedDescription); return false }
+    }
+
+    func selectProvider(_ selected: PlanningProvider) {
+        guard !testingConnection, !requesting, selected != provider else { return }
+        provider = selected
+        UserDefaults.standard.set(selected.rawValue, forKey: "planningProvider")
+        hasAPIKey = false
+        do {
+            hasAPIKey = try PlannerKeyStore.read(for: selected) != nil
+            connectionState = hasAPIKey ? .saved : .needsKey
+        } catch { connectionState = .failed(error.localizedDescription) }
+    }
+
+    func selectMuseModel(_ model: MuseModel) {
+        guard !testingConnection, !requesting, model != museModel else { return }
+        museModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "museModel")
+        connectionState = hasAPIKey ? .saved : .needsKey
+    }
+
+    func selectGeminiModel(_ model: GeminiModel) {
+        guard !testingConnection, !requesting, model != geminiModel else { return }
+        geminiModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "geminiModel")
+        connectionState = hasAPIKey ? .saved : .needsKey
+    }
+
+    func testAPIKey() {
+        guard !testingConnection, !requesting else { return }
+        connectionState = .checking(Date())
+        connectionTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                guard let key = try PlannerKeyStore.read(for: provider) else {
+                    self.hasAPIKey = false
+                    throw PlanError.server("Paste your \(self.provider.name) API key first.")
+                }
+                try await self.planningClient.test(key: key)
+                guard !Task.isCancelled else { return }
+                self.connectionState = .connected(Date())
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            } catch {
+                guard !Task.isCancelled else { return }
+                self.connectionState = .failed(error.localizedDescription)
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+            }
+            self.connectionTask = nil
+        }
+    }
+
+    func cancelConnectionTest() {
+        guard testingConnection else { return }
+        connectionTask?.cancel()
+        connectionTask = nil
+        connectionState = hasAPIKey ? .saved : .needsKey
+    }
+
+    func removeAPIKey() {
+        guard !testingConnection, !requesting else { return }
+        do {
+            try PlannerKeyStore.remove(for: provider)
+            hasAPIKey = false
+            connectionState = .needsKey
+        } catch { connectionState = .failed(error.localizedDescription) }
+    }
+
     private func install(_ selected: EncounterPlan) {
         guard spawnTransforms[selected.objectID] != nil, let room = selected.room,
               spawnTransforms[room.keepsakeObjectID] != nil else {
@@ -291,15 +549,43 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             return
         }
         plan = selected
+        replayRoom = RoomPlanReplay(friend: friend, plan: selected, candidates: candidates)
         selectedCategory = candidates.first(where: { $0.id == selected.objectID })?.category ?? "furniture"
         applyTheme()
-        game.acceptPlan()
+        let blueprint = selected.challenge.flatMap { QuestBlueprint(rawValue: $0.blueprintID) } ?? QuestBlueprint.first(for: friend)
+        game.acceptPlan(challenge: blueprint.map { QuestGame(blueprint: $0, introduction: selected.challenge?.introduction) })
         photos = []
+        roomNeedsSaving = true
+        saveRoomIfReady()
+    }
+
+    /// Keep the live AR coordinate frame and measured room. Restart only the encounter, with zero API calls.
+    func replayCurrentRoom(with selectedFriend: RealmFriend? = nil) {
+        guard canReplayRoom, let replayRoom, let context = roomContext else { return }
+        let selectedFriend = selectedFriend ?? friend
+        let selected = replayRoom.encounter(for: selectedFriend)
+        do { try selected.validateRoom(against: candidates, surfaces: context.surfaces) }
+        catch { issue = error.localizedDescription; return }
+        let blueprint = selected.challenge.flatMap { QuestBlueprint(rawValue: $0.blueprintID) } ?? QuestBlueprint.first(for: selectedFriend)
+        guard game.replayRoom(challenge: blueprint.map { QuestGame(blueprint: $0, introduction: selected.challenge?.introduction) }) else { return }
+        speech.stopSpeaking(at: .immediate)
+        if let anchor { arView.scene.removeAnchor(anchor) }
+        if let worldAnchor { arView.session.remove(anchor: worldAnchor) }
+        clearQuest()
+        anchor = nil; worldAnchor = nil; creature = nil; creatureAnimator = nil
+        preparedCreature = nil; questReward = nil; dialogue = nil; distance = nil
+        proximity = ProximityGate()
+        friend = selectedFriend; plan = selected; usingSavedRoom = true
+        selectedCategory = candidates.first { $0.id == selected.objectID }?.category ?? "furniture"
+        planningError = nil
+        if !savingRoom { roomSaveMessage = "Reusing this scan and room plan. No AI request made." }
+        applyTheme()
     }
 
     func beginExploring() {
         guard phase == .ready, trackingReady, let plan, let room = plan.room,
-              let transform = spawnTransforms[plan.objectID] else { return }
+              let support = spawnTransforms[plan.objectID] else { return }
+        let transform = refineSupport(support)
         do { preparedCreature = try CreatureFactory.make(friend) }
         catch { issue = "Couldn't load \(friend.name): \(error.localizedDescription)"; return }
         let arAnchor = ARAnchor(name: plan.objectID, transform: transform)
@@ -321,7 +607,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         spirit.scale = .one * 0.01
         anchor.addChild(spirit)
         creature = spirit
-        creatureAnimator = CreatureAnimator(root: spirit, friend: friend)
+        creatureAnimator = CreatureAnimator(root: spirit, friend: friend, grounded: true)
+        creatureAnimator?.update(delta: 0, reducedMotion: UIAccessibility.isReduceMotionEnabled)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
@@ -338,13 +625,16 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     private func applyTheme() {
         if let jungle { arView.scene.removeAnchor(jungle.anchor) }
-        arView.environment.sceneUnderstanding.options.remove(.occlusion)
-        guard theme == .jungle else {
+        // Rebuild when switching presets, while keeping the validated room plan.
+        if jungle?.theme != theme { jungle = nil }
+        arView.environment.sceneUnderstanding.options.insert(.occlusion)
+        guard theme != .original else {
             themeMessage = "Your room, just as it is."
             return
         }
+        guard phase != .restoring else { themeMessage = "Your \(theme.name) returns once the room is recognized."; return }
         guard let themeRoom, let understanding = plan?.room else {
-            themeMessage = "Gemini will plan your Jungle after the 360° scan. Include visible walls and furniture."
+            themeMessage = "Your selected AI will plan your wall decorations after the 360° scan. Include visible walls and furniture."
             return
         }
         do {
@@ -353,7 +643,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                     guard let id, let transform = spawnTransforms[id] else { return nil }
                     return position(transform)
                 }
-                jungle = try ThemeFactory.jungle(in: themeRoom, observer: themeObserver,
+                jungle = try ThemeFactory.make(theme, in: themeRoom, observer: themeObserver,
                     plan: understanding.jungle, questPositions: questPositions, observations: wallObservations)
             }
             if let jungle {
@@ -365,7 +655,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                 themeMessage = jungle.message
             }
         } catch {
-            themeMessage = "Couldn't grow the jungle. Select Jungle to try again, or scan the room again."
+            themeMessage = "Couldn't load \(theme.name). Select it to try again, or scan the room again."
         }
     }
 
@@ -377,14 +667,15 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         wallObservations = []
         wallObservationIndices = [:]
         lastWallObservation = -.infinity
-        arView.environment.sceneUnderstanding.options.remove(.occlusion)
-        themeMessage = theme == .jungle ? "Gemini will plan your Jungle after the 360° scan. Include visible walls and furniture." : "Your room, just as it is."
+        arView.environment.sceneUnderstanding.options.insert(.occlusion)
+        themeMessage = theme != .original ? "Your selected AI will plan your wall decorations after the 360° scan. Include visible walls and furniture." : "Your room, just as it is."
     }
 
     private func prepareQuest(friendID: String, keepsakeID: String) {
         guard let location = candidates.first(where: { $0.id == keepsakeID }),
               var transform = spawnTransforms[location.id] else { return }
-        // Reuse a scanned, observed furniture face, never a guessed point behind furniture.
+        // Refine in the recognized coordinate frame, then deliberately float this magical pickup.
+        transform = refineSupport(transform)
         // In a one-location room the item floats just above the friend, reachable in place.
         transform.columns.3.y += location.id == friendID ? 0.6 : 0.25
         let arAnchor = ARAnchor(name: "keepsake", transform: transform)
@@ -426,9 +717,43 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         guard game.finishQuest(trackingReady: trackingReady, inReach: inReach) else { return }
         completedFriends.insert(friend.rawValue)
         UserDefaults.standard.set(Array(completedFriends).sorted(), forKey: "realmFriendships")
-        speak(friend.thanks)
+        speak(game.challenge?.blueprint.success ?? friend.thanks)
         creatureAnimator?.react(.celebrate)
+        if game.challenge != nil, let anchor {
+            let reward = CreatureFactory.questReward(friend)
+            reward.position = [0.24, 0.25, 0.12]
+            anchor.addChild(reward)
+            questReward = reward
+        }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    func returnKeepsake() {
+        guard game.challenge != nil else { finishQuest(); return }
+        guard game.beginChallenge(trackingReady: trackingReady, inReach: inReach) else { return }
+        speak(game.challenge?.feedback ?? "Let's play!")
+        creatureAnimator?.react(.greeting)
+    }
+
+    func playChallenge(_ action: QuestAction) {
+        let result = game.playChallenge(action, trackingReady: challengeAvailable, inReach: inReach)
+        guard result != .ignored else { return }
+        if result == .won { finishQuest(); return }
+        if result == .retry { creatureAnimator?.react(.puzzled) }
+        else if result == .roundWon { creatureAnimator?.react(.play) }
+        else if case .replay = action, let cue = game.challenge?.highlightedID {
+            speech.stopSpeaking(at: .immediate)
+            creatureAnimator?.react(FriendReaction.bloopMove(cue))
+            UIAccessibility.post(notification: .announcement, argument: cue.capitalized)
+        } else if case .select(let id) = action, game.challenge?.blueprint.kind == .memory {
+            creatureAnimator?.react(FriendReaction.bloopMove(id))
+        } else { creatureAnimator?.react(.chat) }
+        switch action {
+        case .select: UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+        case .replay: break // Keep the demonstration clear of long spoken instructions.
+        case .submit, .hint:
+            if let feedback = game.challenge?.feedback { speak(feedback) }
+        }
     }
 
     func chat() {
@@ -470,6 +795,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     func chooseAnotherFriend() {
         generation = UUID()
+        resetRoomPersistenceState()
         planTask?.cancel()
         planTask = nil
         capture?.delegate = nil
@@ -483,6 +809,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         anchor = nil
         worldAnchor = nil
         creature = nil
+        questReward = nil
         creatureAnimator = nil
         preparedCreature = nil
         candidates = []
@@ -493,6 +820,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         plan = nil
         dialogue = nil
         requesting = false
+        suspended = false; failed = false; interrupted = false; scanNeedsRestart = false
+        planningError = nil; issue = nil
         distance = nil
         arView.session.pause()
         UIApplication.shared.isIdleTimerDisabled = false
@@ -507,6 +836,14 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     private func tick(_ delta: Double) {
         elapsed += min(delta, 0.1)
+        let previousCue = game.challenge?.highlightedID
+        if game.challenge?.memoryStage == .showing {
+            game.advanceChallenge(delta: delta, available: challengeAvailable)
+            if let cue = game.challenge?.highlightedID, cue != previousCue {
+                creatureAnimator?.react(FriendReaction.bloopMove(cue))
+                UIAccessibility.post(notification: .announcement, argument: cue.capitalized)
+            }
+        }
         if !suspended && !interrupted && trackingReady {
             creatureAnimator?.update(delta: delta, speaking: speech.isSpeaking,
                                      reducedMotion: UIAccessibility.isReduceMotionEnabled)
@@ -514,6 +851,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         if let keepsake {
             keepsake.position.y = sin(Float(elapsed) * 2) * 0.025
             keepsake.orientation = simd_quatf(angle: Float(elapsed) * 0.65, axis: [0, 1, 0])
+        }
+        if let questReward {
+            questReward.position.y = 0.25 + (UIAccessibility.isReduceMotionEnabled ? 0 : sin(Float(elapsed) * 1.6) * 0.012)
         }
         guard elapsed - lastHUDUpdate > 0.15 else { return }
         lastHUDUpdate = elapsed
@@ -535,7 +875,26 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             default: trackingMessage = "Move your phone slowly to find surfaces."
             }
         }
+        if phase == .restoring, let snapshot = restoringRoom {
+            let recognized = restoreGate.update(timestamp: frame.timestamp, trackingNormal: trackingReady,
+                referencePresent: frame.timestamp > restoreAfterFrame && frame.anchors.contains { $0.identifier == snapshot.referenceAnchorID })
+            if recognized, let plan {
+                let blueprint = plan.challenge.flatMap { QuestBlueprint(rawValue: $0.blueprintID) } ?? QuestBlueprint.first(for: friend)
+                if game.restorePlan(aligned: true, challenge: blueprint.map { QuestGame(blueprint: $0, introduction: plan.challenge?.introduction) }) {
+                    restoringRoom = nil
+                    roomSaveMessage = "Using your saved room. No scan or AI request needed."
+                    applyTheme()
+                }
+            } else {
+                trackingReady = false
+                trackingMessage = "Recognizing your saved room…"
+                if elapsed - restoreStarted > 25 {
+                    restoreMessage = "Still looking for the saved room. Try the original viewpoint and similar lighting. If you moved furniture or changed rooms, make a fresh scan."
+                }
+            }
+        }
         jungle?.anchor.isEnabled = trackingReady
+        saveRoomIfReady()
         if phase == .scanning, trackingReady {
             recordWallObservation(frame)
             let forward = -frame.camera.transform.columns.2

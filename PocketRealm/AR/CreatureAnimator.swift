@@ -16,10 +16,15 @@ final class CreatureAnimator {
     private var hearts: [ModelEntity] = []
     private var stars: [ModelEntity] = []
     private let height: Float
+    private let grounded: Bool
+    private let visualChildren: [Entity]
 
-    init(root: Entity, friend: RealmFriend) {
+    init(root: Entity, friend: RealmFriend, grounded: Bool = false) {
         self.root = root
         self.friend = friend
+        self.grounded = grounded
+        // Capture only the character geometry, before adding hearts and stars.
+        visualChildren = Array(root.children)
         motion = FriendMotion(friend: friend)
         height = root.visualBounds(relativeTo: root).max.y
         for name in ["EyeL", "EyeR", "Mouth", "AppendageL", "AppendageR", "Tail", "Shell"] {
@@ -64,10 +69,16 @@ final class CreatureAnimator {
                 transform.rotation *= simd_quatf(angle: pose.appendage * side, axis: axis)
                 if friend == .nibbi { transform.rotation *= simd_quatf(angle: pose.appendage * 0.4, axis: [1,0,0]) }
             case "Tail": transform.rotation *= simd_quatf(angle: pose.tail, axis: [0,1,0])
-            case "Shell": transform.rotation *= simd_quatf(angle: pose.tail * 0.15, axis: [0,0,1])
+            case "Shell": transform.rotation *= simd_quatf(angle: pose.tail * (friend == .trufflet ? 0.65 : 0.15), axis: [0,0,1])
             default: break
             }
             control.entity.transform = transform
+        }
+        if grounded, let lowest = visualChildren.map({ $0.visualBounds(relativeTo: root.parent).min.y }).min(),
+           lowest.isFinite {
+            // Squashes and tilts change the bottom of the model. Keep it on the
+            // support while preserving intentional upward hops; particles cannot lift it.
+            root.position.y += 0.008 + max(0, pose.position.y) - lowest
         }
         for (isHeart, particles) in [(true, hearts), (false, stars)] {
             let enabled = !reducedMotion && pose.effect > 0 && motion.reaction == (isHeart ? .pet : .celebrate)
