@@ -55,7 +55,7 @@ M = {k:mat(k,c,r,e) for k,c,r,e in [
     ('seam','845C39',.63,0),('peach','EEA27A',.48,0),('apricot','DE815B',.5,0),
     ('wing','F6D091',.49,0),('glow','FFDB7F',.3,.35),
     ('lilac','AA93D0',.45,0),('shell','71619A',.36,0),
-    ('teal','6ECDBD',.28,0),('floor','E8E5DB',.8,0)]}
+    ('teal','6ECDBD',.28,0),('rose','EFA6B4',.48,0),('berry','C96A85',.55,0),('honey','F0BD69',.48,0),('coral','D87857',.5,0),('floor','E8E5DB',.8,0)]}
 active_root = None
 bodies = {}
 
@@ -161,6 +161,26 @@ def paint(obj, kind, resolution=1024):
         colors=mix(colors,rgb('DFCCEA'),mask(x,z,0,1.01,.68,.57)*front*.85)
         colors=mix(colors,rgb('91CABC'),np.clip((z-1.42)*10,0,1))
         face_z=.89; cheeks=.37
+    elif kind=='Bloopi':
+        colors=np.tile(rgb('74BDD7'),(len(x),1))
+        colors=mix(colors,rgb('D7F0DD'),mask(x,z,0,.89,.56,.54)*front*.9)
+        colors=mix(colors,rgb('458DB6'),np.clip((y-.08)*1.8,0,.6))
+        face_z=.99; cheeks=.41
+    elif kind=='Nibbi':
+        colors=np.tile(rgb('E8A0B1'),(len(x),1))
+        colors=mix(colors,rgb('FFE6CD'),mask(x,z,0,.70,.4,.4)*front*.96)
+        colors=mix(colors,rgb('F7CBD0'),mask(x,z,0,1.15,.56,.46)*front*.7)
+        face_z=.99; cheeks=.39
+    elif kind=='Cindlet':
+        colors=np.tile(rgb('DFAC60'),(len(x),1))
+        colors=mix(colors,rgb('FFF0C9'),mask(x,z,0,1.05,.58,.25)*front*.95)
+        colors=mix(colors,rgb('FFF0C9'),mask(x,z,0,.65,.34,.36)*front*.9)
+        colors=mix(colors,rgb('B77A46'),np.clip((.32-z)*3.8,0,.65))
+        face_z=.96; cheeks=.38
+    elif kind=='flame_tail':
+        colors=np.tile(rgb('D88B53'),(len(x),1))
+        colors=mix(colors,rgb('F7CB79'),np.clip((z-.60)*1.5,0,1))
+        colors=mix(colors,rgb('FFF0CF'),np.clip((z-1.15)*4,0,1))
     elif kind.startswith('wing'):
         ax=np.abs(x)
         colors=np.tile(rgb('EAC078'),(len(x),1))
@@ -177,7 +197,7 @@ def paint(obj, kind, resolution=1024):
         centers=np.array(shell_spiral_points)
         distance=np.min(np.sum((xyz[:,None,:]-centers[None,:,:])**2,axis=2),axis=1)**.5
         colors=mix(colors,rgb('C6AFDA'),np.exp(-(distance/.07)**2)*.78)
-    if kind in ('Mosskip','Glimlo','Pebblin'):
+    if kind in ('Mosskip','Glimlo','Pebblin','Bloopi','Nibbi','Cindlet'):
         blush=np.maximum(mask(x,z,-cheeks,face_z,.15,.085),mask(x,z,cheeks,face_z,.15,.085))*front
         colors=mix(colors,rgb('EA9C96'),blush*.76)
         # Very subtle pigment variation, not a bumpy procedural surface.
@@ -245,11 +265,13 @@ def face(body,z,spacing=.245):
         eye.rotation_euler=normal.to_track_quat('-Y','Z').to_euler()
         # Small intentional highlight embedded into the glossy eye surface.
         p=loc+normal*.044+Vector((-.021,0,.033))
-        orb('eye_catchlight',p,(.019,.010,.024),'shine',segments=24,rings=16)
+        glint=orb('eye_catchlight',p,(.019,.010,.024),'shine',segments=24,rings=16)
+        motion_pivot('EyeL' if side<0 else 'EyeR',loc,[eye,glint])
     points=[]
     for x,dz in ((-.09,-.166),(-.045,-.198),(0,-.21),(.045,-.198),(.09,-.166)):
         loc,n=surface(body,x,z+dz); points.append(loc+n*.006)
-    line('gentle_smile',points,.011,'ink')
+    smile=line('gentle_smile',points,.011,'ink')
+    motion_pivot('Mouth',points[2],[smile])
 
 
 def rounded_box(name,loc,scale,material,bevel):
@@ -362,17 +384,110 @@ def make_pebblin():
         for p in o.data.polygons: p.use_smooth=False
 
 
+
+def motion_pivot(label, location, objects):
+    """Named Y-up local controls survive USD/GLB export, with geometry kept in place."""
+    bpy.context.view_layer.update()
+    worlds=[o.matrix_world.copy() for o in objects]
+    control=bpy.data.objects.new(active_root.name+'__'+label,None)
+    bpy.context.collection.objects.link(control); control.parent=active_root
+    control.location=location; control.rotation_euler.x=math.pi/2
+    bpy.context.view_layer.update()
+    for obj,world in zip(objects,worlds): obj.parent=control; obj.matrix_world=world
+    return control
+
+
+def make_bloopi():
+    parts=[orb('tide_torso',(0,0,.72),(.61,.43,.64)),orb('tide_head',(0,-.03,1.13),(.54,.40,.39))]
+    for side in (-1,1):
+        parts.append(orb('flipper',(side*.51,-.01,.62),(.20,.23,.32),rotation=(0,side*-.65,0)))
+        parts.append(orb('webbed_foot',(side*.29,-.09,.19),(.24,.32,.19)))
+    body=sculpt('Bloopi_continuous_body',parts); bodies['Bloopi']=body; paint(body,'Bloopi'); face(body,1.15)
+    for side in (-1,1):
+        branches=[orb('gill_stem',(side*.52,.025,1.15),(.14,.16,.29))]
+        branches.append(orb('gill_web',(side*.66,.025,1.17),(.18,.12,.23)))
+        for dx,z,angle in ((.10,1.39,-.4),(.23,1.20,-1.15),(.15,.98,-2.0)):
+            branches.append(orb('gill_frond',(side*(.52+dx),.015,z),(.09,.11,.22),rotation=(0,side*angle,0)))
+        gill=sculpt('rosy_gill',branches,voxel=.014,iterations=12,reduction=.12)
+        gill.data.materials.append(M['rose'])
+        motion_pivot('AppendageL' if side<0 else 'AppendageR',(side*.46,.04,1.16),[gill])
+    tail=sculpt('paddle_tail',[orb('tail_root',(0,.40,.40),(.25,.34,.19)),orb('tail_paddle',(.18,.73,.46),(.36,.40,.14),rotation=(.25,0,-.2))],voxel=.024,iterations=12)
+    tail.data.materials.append(M['teal']); motion_pivot('Tail',(0,.33,.40),[tail])
+    # A small shell charm: a keepsake from the first puddle expedition.
+    charm=orb('shell_charm',(0,-.445,.66),(.105,.035,.095),'cream')
+    for dx in (-.045,0,.045): line('shell_etch',[(dx,-.480,.70),(dx*.55,-.483,.61)],.005,'honey')
+
+
+def make_nibbi():
+    parts=[orb('bun_torso',(0,0,.72),(.56,.41,.63)),orb('bun_head',(0,-.015,1.13),(.53,.39,.40))]
+    for side in (-1,1):
+        parts.append(orb('bun_paw',(side*.46,-.05,.65),(.17,.20,.28),rotation=(0,side*-.48,0)))
+        parts.append(orb('bun_foot',(side*.25,-.09,.18),(.24,.30,.18)))
+    body=sculpt('Nibbi_continuous_body',parts); bodies['Nibbi']=body; paint(body,'Nibbi'); face(body,1.15,.235)
+    for side in (-1,1):
+        ear=sculpt('floppy_ear',[
+            orb('ear_base',(side*.25,.04,1.45),(.155,.15,.27),rotation=(0,side*.18,0)),
+            orb('ear_length',(side*.34,.02,1.72),(.17,.13,.38),rotation=(0,side*.28,0)),
+            orb('ear_tip',(side*.48,-.06,1.92),(.19,.14,.19))],voxel=.018,iterations=15,reduction=.16)
+        ear.data.materials.append(M['rose'])
+        inner=orb('soft_inner_ear',(side*.37,-.11,1.77),(.095,.028,.225),'cream',rotation=(0,side*.30,0))
+        motion_pivot('AppendageL' if side<0 else 'AppendageR',(side*.24,.05,1.38),[ear,inner])
+    tail=orb('cotton_tail',(0,.39,.43),(.22,.23,.22),'cream')
+    motion_pivot('Tail',(0,.34,.43),[tail])
+    rounded_box('apron_pocket',(0,-.42,.52),(.40,.045,.25),'cream',.075)
+    orb('friendship_cookie',(.02,-.44,.66),(.14,.040,.14),'honey')
+    for x,z in ((-.04,.73),(.07,.70),(-.03,.61),(.08,.60)):
+        orb('cookie_chip',(x,-.48,z),(.018,.008,.018),'seam',segments=16,rings=12)
+    leaf('recipe_leaf',(.36,-.16,1.48),.20,.065,'leaf',.8)
+
+
+def make_cindlet():
+    parts=[orb('fox_torso',(0,0,.73),(.53,.39,.63)),orb('fox_head',(0,-.04,1.12),(.52,.38,.43))]
+    for side in (-1,1):
+        parts.append(orb('fox_paw',(side*.43,-.07,.61),(.16,.19,.28),rotation=(0,side*-.32,0)))
+        parts.append(orb('fox_foot',(side*.25,-.07,.18),(.23,.29,.18)))
+        parts.append(orb('fox_ear',(side*.34,.025,1.50),(.16,.17,.33),rotation=(0,side*.25,0)))
+    body=sculpt('Cindlet_continuous_body',parts); bodies['Cindlet']=body; paint(body,'Cindlet'); face(body,1.16,.23)
+    for side in (-1,1):
+        orb('ear_velvet',(side*.38,-.111,1.55),(.073,.022,.17),'coral',rotation=(0,side*.22,0))
+    tail=sculpt('soft_flame_tail',[
+        orb('tail_root',(.27,.34,.46),(.26,.30,.27)),
+        orb('tail_curve',(.50,.55,.70),(.32,.33,.45),rotation=(0,.25,0)),
+        orb('tail_tip',(.68,.48,1.15),(.23,.24,.40),rotation=(0,-.20,0))],voxel=.021,iterations=17,reduction=.16)
+    paint(tail,'flame_tail'); motion_pivot('Tail',(.20,.29,.43),[tail])
+    # A soft little neckerchief, tucked into the body instead of a separate collar ball.
+    leaf('cozy_scarf',(0,-.32,.92),.29,.13,'coral',math.pi)
+    nose,n=surface(body,0,1.01)
+    orb('fox_nose',nose+n*.011,(.032,.018,.024),'seam')
+
+
+def rig_existing_appendages(name):
+    children=list(active_root.children)
+    def named(prefix): return [o for o in children if o.name.startswith(prefix)]
+    if name=='Mosskip':
+        sprout=named('sprout_left')[0]
+        motion_pivot('AppendageL',sprout.location,[sprout,*named('leaf_midrib')])
+        sprout=named('sprout_right')[0]; motion_pivot('AppendageR',sprout.location,[sprout])
+    elif name=='Glimlo':
+        for side in (-1,1):
+            motion_pivot('AppendageL' if side<0 else 'AppendageR',(side*.20,.11,.95),named('wing_L' if side<0 else 'wing_R'))
+    elif name=='Pebblin':
+        shell=named('Pebblin_sculpted_shell')+named('dream_crystal')
+        motion_pivot('Shell',(0,.36,.55),shell)
+
+
 roots=[]; stats={}
-for name,builder in [('Mosskip',make_mosskip),('Glimlo',make_glimlo),('Pebblin',make_pebblin)]:
+for name,builder in [('Mosskip',make_mosskip),('Glimlo',make_glimlo),('Pebblin',make_pebblin),('Bloopi',make_bloopi),('Nibbi',make_nibbi),('Cindlet',make_cindlet)]:
     bpy.ops.object.select_all(action='DESELECT')
     active_root=bpy.data.objects.new(name,None); bpy.context.collection.objects.link(active_root)
-    builder(); root=active_root; root.scale=(.22,.22,.22)
+    builder(); rig_existing_appendages(name); root=active_root; root.scale=(.22,.22,.22)
     bpy.context.view_layer.update()
-    select_only([root,*root.children])
-    for obj in root.children:
+    select_only([root,*root.children_recursive])
+    for obj in root.children_recursive:
         if obj.type=='MESH': obj.data.name=obj.name+'_Mesh'
-    tri_count=sum(sum(len(p.vertices)-2 for p in o.data.polygons) for o in root.children if o.type=='MESH')
-    stats[name]={'triangles':tri_count,'meshes':len(root.children),'heightMeters':round(max((o.matrix_world @ Vector(c)).z for o in root.children for c in o.bound_box),3),'bodyConnectedComponents':len(connected_components(bodies[name].data)),'paintedBaseColor':True}
+    meshes=[o for o in root.children_recursive if o.type=='MESH']
+    tri_count=sum(sum(len(p.vertices)-2 for p in o.data.polygons) for o in meshes)
+    stats[name]={'triangles':tri_count,'meshes':len(meshes),'heightMeters':round(max((o.matrix_world @ Vector(c)).z for o in meshes for c in o.bound_box),3),'bodyConnectedComponents':len(connected_components(bodies[name].data)),'paintedBaseColor':True,'textures':len({slot.material.name for o in meshes for slot in o.material_slots if any(n.type=='TEX_IMAGE' for n in slot.material.node_tree.nodes)}),'motionControls':[o.name for o in root.children_recursive if o.type=='EMPTY']}
     bpy.ops.wm.usd_export(filepath=str(ASSETS/f'{name}.usdz'), selected_objects_only=True,
         export_animation=False, export_materials=True, generate_preview_surface=True,
         export_lights=False, export_cameras=False, convert_orientation=True,
@@ -404,7 +519,7 @@ def aim(loc,target,scale):
 
 def visible(root, show):
     root.hide_render=not show
-    for child in root.children: child.hide_render=not show
+    for child in root.children_recursive: child.hide_render=not show
 
 for root in roots: visible(root,False)
 for root in roots:
@@ -421,13 +536,13 @@ for root in roots:
     (folder/'Contents.json').write_text(json.dumps({'images':[{'filename':f'{root.name}.png','idiom':'universal'}],'info':{'author':'xcode','version':1}},indent=2)+'\n')
     visible(root,False)
 
-for root,x in zip(roots,(-.65,0,.65)):
+for root,x in zip(roots,(-1.53,-.92,-.30,.30,.92,1.53)):
     visible(root,True); root.location.x=x
     # A little rotation lets the last friend's spiral shell read in the lineup.
     root.rotation_euler.z= -.22 if root.name=='Pebblin' else .06
-scene.render.resolution_x=1800; scene.render.resolution_y=1000
+scene.render.resolution_x=2400; scene.render.resolution_y=900
 scene.cycles.samples=48
-aim((.70,-3.8,1.65),(0,0,.21),2.08)
+aim((.42,-5.5,1.7),(0,0,.23),3.93)
 scene.render.filepath=str(ART/'friends-lineup.png')
 # Open the editable source on the composed camera view.
 for screen in bpy.data.screens:

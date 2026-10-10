@@ -12,6 +12,9 @@ FRIENDS = {
     "Mosskip": "a cheerful mint-green sprout courier carrying a seed satchel; curious and easily lost",
     "Glimlo": "a bashful peach lantern moth with petal wings; loves helping friends feel brave",
     "Pebblin": "a sleepy lilac pebble snail with a crystal shell; collects lovely dreams",
+    "Bloopi": "a blue tide pup with rosy gills and a paddle tail; maps puddles and loves skipping stones",
+    "Nibbi": "a strawberry-pink floppy-eared bunny baker with a cookie pocket; generous, excitable, and snack obsessed",
+    "Cindlet": "a honey-colored ember fox with a soft flame tail; gently keeps little wishes warm",
 }
 ALLOWED = {"storage", "refrigerator", "table", "sofa", "chair", "bed"}
 

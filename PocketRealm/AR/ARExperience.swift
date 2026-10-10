@@ -43,6 +43,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var anchor: AnchorEntity?
     private var worldAnchor: ARAnchor?
     private var creature: Entity?
+    private var creatureAnimator: CreatureAnimator?
     private var preparedCreature: Entity?
     private var questAnchor: AnchorEntity?
     private var questWorldAnchor: ARAnchor?
@@ -51,11 +52,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var roomContext: RoomScanContext?
     private var themeObserver: SIMD3<Float> = .zero
     private var jungle: ThemeFactory.Result?
-    private var reactionTime: Double = -.infinity
     private var updates: Cancellable?
     private var elapsed: Double = 0
     private var scanStarted: Double = 0
-    private var revealTime: Double = 0
     private var lastHUDUpdate: Double = 0
     private var suspended = false
     private var failed = false
@@ -80,6 +79,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     override init() {
         super.init()
         arView.session.delegate = self
+        arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapFriend(_:))))
         applyTheme()
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             Task { @MainActor [weak self] in self?.tick(event.deltaTime) }
@@ -126,7 +126,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         clearTheme()
         preparedCreature = nil
         dialogue = nil
-        reactionTime = -.infinity
+        creatureAnimator = nil
         anchor = nil
         worldAnchor = nil
         creature = nil
@@ -315,7 +315,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         spirit.scale = .one * 0.01
         anchor.addChild(spirit)
         creature = spirit
-        revealTime = elapsed
+        creatureAnimator = CreatureAnimator(root: spirit, friend: friend)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
@@ -402,7 +402,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         questAnchor.addChild(item)
         keepsake = item
         speak((plan?.greeting ?? "Hi! I'm \(friend.name).") + " " + friend.questRequest)
-        react()
+        creatureAnimator?.react(.greeting)
     }
 
     func collectKeepsake() {
@@ -417,24 +417,38 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         completedFriends.insert(friend.rawValue)
         UserDefaults.standard.set(Array(completedFriends).sorted(), forKey: "realmFriendships")
         speak(friend.thanks)
-        react()
+        creatureAnimator?.react(.celebrate)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
     func chat() {
         guard phase == .complete, trackingReady, inReach else { return }
         speak(friend.chat)
-        react()
+        creatureAnimator?.react(.chat)
     }
 
     func pet() {
         guard [.revealed, .questing, .returning, .complete].contains(phase), trackingReady, inReach else { return }
-        dialogue = "\(friend.name) does a happy little wiggle."
-        react()
+        guard creatureAnimator?.react(.pet) == true else { return }
+        dialogue = friend.petReaction
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 
-    private func react() { reactionTime = elapsed }
+    func play() {
+        guard [.revealed, .questing, .returning, .complete].contains(phase), trackingReady, inReach,
+              creatureAnimator?.react(.play) == true else { return }
+        dialogue = friend.playReaction
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    @objc private func tapFriend(_ recognizer: UITapGestureRecognizer) {
+        guard let creature, var hit = arView.entity(at: recognizer.location(in: arView)) else { return }
+        while hit !== creature {
+            guard let parent = hit.parent else { return }
+            hit = parent
+        }
+        pet()
+    }
     private func speak(_ text: String) {
         dialogue = text
         speech.stopSpeaking(at: .immediate)
@@ -459,6 +473,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         anchor = nil
         worldAnchor = nil
         creature = nil
+        creatureAnimator = nil
         preparedCreature = nil
         candidates = []
         spawnTransforms = [:]
@@ -482,16 +497,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     private func tick(_ delta: Double) {
         elapsed += min(delta, 0.1)
-        if let creature {
-            let age = Float(elapsed - revealTime)
-            let ease = 1 - pow(1 - min(1, age / 0.7), 3)
-            creature.scale = .one * max(0.01, ease)
-            let reactionAge = Float(elapsed - reactionTime)
-            let reaction = reactionAge < 1.4 ? sin(reactionAge * 14) * (1 - reactionAge / 1.4) : 0
-            let floatHeight: Float = friend == .glimlo ? 0.024 : 0.009
-            creature.position.y = -0.08 * (1 - ease) + sin(age * 2.1) * floatHeight + abs(reaction) * 0.035
-            creature.orientation = simd_quatf(angle: sin(age * 1.4) * 0.10, axis: [0, 1, 0])
-                * simd_quatf(angle: reaction * 0.18, axis: [0, 0, 1])
+        if !suspended && !interrupted && trackingReady {
+            creatureAnimator?.update(delta: delta, speaking: speech.isSpeaking,
+                                     reducedMotion: UIAccessibility.isReduceMotionEnabled)
         }
         if let keepsake {
             keepsake.position.y = sin(Float(elapsed) * 2) * 0.025
