@@ -17,6 +17,42 @@ final class AdventureTests: XCTestCase {
         XCTAssertFalse(game.talk(trackingReady: true, inReach: false))
         XCTAssertTrue(game.talk(trackingReady: true, inReach: true))
     }
+    func testQuestRequiresGreetingPickupAndReturnWithTracking() {
+        var game = Adventure()
+        XCTAssertFalse(game.collect(trackingReady: true, inReach: true))
+        XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: true))
+        game.finishScan()
+        game.acceptPlan()
+        XCTAssertTrue(game.reveal(trackingReady: true, proximitySatisfied: true))
+        XCTAssertFalse(game.collect(trackingReady: true, inReach: true))
+        XCTAssertFalse(game.talk(trackingReady: false, inReach: true))
+        XCTAssertTrue(game.talk(trackingReady: true, inReach: true))
+        XCTAssertEqual(game.phase, .questing)
+        XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: true))
+        XCTAssertFalse(game.collect(trackingReady: false, inReach: true))
+        XCTAssertFalse(game.collect(trackingReady: true, inReach: false))
+        XCTAssertTrue(game.collect(trackingReady: true, inReach: true))
+        XCTAssertEqual(game.phase, .returning)
+        XCTAssertFalse(game.collect(trackingReady: true, inReach: true))
+        XCTAssertFalse(game.finishQuest(trackingReady: false, inReach: true))
+        XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: false))
+        XCTAssertTrue(game.finishQuest(trackingReady: true, inReach: true))
+        XCTAssertEqual(game.phase, .complete)
+        XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: true))
+        game = Adventure()
+        XCTAssertEqual(game.phase, .scanning)
+    }
+
+    func testQuestUsesNearestDistinctObservedLocationAndOneLocationFallback() {
+        let home = RoomCandidate(id: "home", category: "chair", dimensions: [1, 1, 1], position: [0, 0, 0], distance: 1)
+        let near = RoomCandidate(id: "near", category: "table", dimensions: [1, 1, 1], position: [2, 0, 0], distance: 2)
+        let far = RoomCandidate(id: "far", category: "storage", dimensions: [1, 1, 1], position: [4, 0, 0], distance: 3)
+        XCTAssertEqual(QuestLocation.choose(from: [far, home, near], friendID: "home")?.id, "near")
+        XCTAssertEqual(QuestLocation.choose(from: [home], friendID: "home")?.id, "home")
+        XCTAssertNil(QuestLocation.choose(from: [home], friendID: "invented"))
+        XCTAssertNil(QuestLocation.choose(from: [], friendID: "home"))
+    }
+
     func testProximityRequiresLeavingAndDwelling() {
         var gate = ProximityGate()
         XCTAssertFalse(gate.update(distance: 0.8, timestamp: 0, valid: true))

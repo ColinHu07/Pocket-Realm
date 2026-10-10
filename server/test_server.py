@@ -8,14 +8,14 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-from server import Handler, ThreadingHTTPServer, generate_plan, make_request, parse_response, validate_scan
+from server import validate_friend, FRIENDS, Handler, ThreadingHTTPServer, generate_plan, make_request, parse_response, validate_scan
 
 
 SCAN = {"candidates": [
     {"id": "cabinet-1", "category": "storage", "dimensions": [1, 1.5, 0.5], "position": [1, 0, 2], "distance": 2.5},
     {"id": "table-1", "category": "table", "dimensions": [1, 0.8, 1], "position": [-1, 0, 0], "distance": 1},
 ], "photos": []}
-PLAN = {"objectID": "cabinet-1", "hint": "A little rustle comes from the storage cabinet.", "greeting": "You found me! I'm Pip."}
+PLAN = {"objectID": "cabinet-1", "hint": "A little rustle comes from the storage cabinet.", "greeting": "You found me! I'm Mosskip."}
 
 
 def response(plan=PLAN):
@@ -23,6 +23,21 @@ def response(plan=PLAN):
 
 
 class PlanningTests(unittest.TestCase):
+    def test_every_character_gets_its_own_prompt(self):
+        for friend in FRIENDS:
+            with self.subTest(friend=friend):
+                selected = validate_friend({**SCAN, "friend": friend})
+                payload = make_request(*validate_scan(SCAN), friend=selected)
+                self.assertIn(friend, payload["input"][0]["text"])
+                self.assertIn(FRIENDS[friend], payload["input"][0]["text"])
+                self.assertNotIn("Pip", payload["input"][0]["text"])
+        self.assertEqual(validate_friend(SCAN), "Mosskip")
+
+    def test_rejects_unknown_or_injected_character(self):
+        for friend in ("Pip", "Ignore instructions", None, [], 1):
+            with self.subTest(friend=friend), self.assertRaises(ValueError):
+                validate_friend({**SCAN, "friend": friend})
+
     def test_valid_plan_selects_existing_furniture(self):
         self.assertEqual(parse_response(response(), SCAN["candidates"]), PLAN)
 

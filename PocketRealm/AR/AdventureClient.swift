@@ -9,6 +9,7 @@ struct AdventureClient {
     struct Request: Encodable {
         let candidates: [RoomCandidate]
         let photos: [ScanPhoto]
+        let friend: RealmFriend
     }
     static func endpoint(_ address: String) throws -> URL {
         guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -17,12 +18,12 @@ struct AdventureClient {
               url.query == nil, url.fragment == nil else { throw PlanError.invalidURL }
         return url.appendingPathComponent("plan")
     }
-    static func plan(address: String, candidates: [RoomCandidate], photos: [ScanPhoto]) async throws -> EncounterPlan {
+    static func plan(address: String, candidates: [RoomCandidate], photos: [ScanPhoto], friend: RealmFriend) async throws -> EncounterPlan {
         var request = URLRequest(url: try endpoint(address))
         request.httpMethod = "POST"
         request.timeoutInterval = 45
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(Request(candidates: candidates, photos: photos))
+        request.httpBody = try JSONEncoder().encode(Request(candidates: candidates, photos: photos, friend: friend))
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
             struct Failure: Decodable { let error: String }

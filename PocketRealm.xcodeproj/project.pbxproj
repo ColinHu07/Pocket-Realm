@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        D20000000000000000000001 /* RealmTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002; };
+        D20000000000000000000003 /* ThemeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000004; };
 		167DFF409EC67A4321859087 /* PocketRealm/Views/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72054DD03E648985C82E6683 /* PocketRealm/Views/ContentView.swift */; };
 		8A7E937FCD67F3CC8357BEB1 /* PocketRealm/AR/ARExperience.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3352FF030AA5952C955DCBD3 /* PocketRealm/AR/ARExperience.swift */; };
 		9473DC409A14F063E5B6B715 /* PocketRealm/Core/Adventure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577A74B1D9B3A0DAC82DEF3D /* PocketRealm/Core/Adventure.swift */; };
@@ -14,9 +16,13 @@
 		CF8A4D27E1C506A7C75A76BE /* PocketRealm/Resources/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3685E330EC5277A9DD5661C6 /* PocketRealm/Resources/Assets.xcassets */; };
 		EC6971961444FA009A4ADAC6 /* PocketRealm/AR/CreatureFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = CCB620D1C88C21142B4DB2FB /* PocketRealm/AR/CreatureFactory.swift */; };
 		242559BE788DBC0AF8C6C036 = {isa = PBXBuildFile; fileRef = 0022AC72E34F079DF2F64B4A; };
+        C10000000000000000000001 /* RealmFriend.swift in Sources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000002; };
+        C10000000000000000000003 /* Creatures in Resources */ = {isa = PBXBuildFile; fileRef = C10000000000000000000004; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        D20000000000000000000002 /* RealmTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RealmTheme.swift; sourceTree = SOURCE_ROOT; };
+        D20000000000000000000004 /* ThemeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/ThemeFactory.swift; sourceTree = SOURCE_ROOT; };
 		3352FF030AA5952C955DCBD3 /* PocketRealm/AR/ARExperience.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/ARExperience.swift; sourceTree = SOURCE_ROOT; };
 		3685E330EC5277A9DD5661C6 /* PocketRealm/Resources/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = PocketRealm/Resources/Assets.xcassets; sourceTree = SOURCE_ROOT; };
 		38A007151ABE87CC01A5B6E9 /* PocketRealm.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = PocketRealm.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -25,6 +31,8 @@
 		CCB620D1C88C21142B4DB2FB /* PocketRealm/AR/CreatureFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/CreatureFactory.swift; sourceTree = SOURCE_ROOT; };
 		DBB6515DBB03CC6B99035B4B /* PocketRealm/App/PocketRealmApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/App/PocketRealmApp.swift; sourceTree = SOURCE_ROOT; };
 		0022AC72E34F079DF2F64B4A = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/AdventureClient.swift; sourceTree = SOURCE_ROOT; };
+        C10000000000000000000002 /* RealmFriend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RealmFriend.swift; sourceTree = SOURCE_ROOT; };
+        C10000000000000000000004 /* Creatures */ = {isa = PBXFileReference; lastKnownFileType = folder; path = PocketRealm/Resources/Creatures; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -41,6 +49,10 @@
 		B28B7AF69320201D1CF206EB = {
 			isa = PBXGroup;
 			children = (
+                D20000000000000000000002,
+                D20000000000000000000004,
+                C10000000000000000000002,
+                C10000000000000000000004,
 				0022AC72E34F079DF2F64B4A,
 				3352FF030AA5952C955DCBD3 /* PocketRealm/AR/ARExperience.swift */,
 				CCB620D1C88C21142B4DB2FB /* PocketRealm/AR/CreatureFactory.swift */,
@@ -111,6 +123,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                C10000000000000000000003,
 				CF8A4D27E1C506A7C75A76BE /* PocketRealm/Resources/Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -122,6 +135,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                D20000000000000000000001,
+                D20000000000000000000003,
+                C10000000000000000000001,
 				242559BE788DBC0AF8C6C036,
 				8A7E937FCD67F3CC8357BEB1 /* PocketRealm/AR/ARExperience.swift in Sources */,
 				EC6971961444FA009A4ADAC6 /* PocketRealm/AR/CreatureFactory.swift in Sources */,

@@ -28,6 +28,14 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         didSet { UserDefaults.standard.set(serverAddress, forKey: "adventureServer") }
     }
     @Published var connectionPresented = false
+    @Published var themePresented = false
+    @Published private(set) var theme = RealmTheme(rawValue: UserDefaults.standard.string(forKey: "realmTheme") ?? "") ?? .original
+    @Published private(set) var themeMessage = "Choose a look for your room."
+    @Published private(set) var friend: RealmFriend = .mosskip
+    @Published private(set) var questCategory = ""
+    @Published private(set) var questDistance: Float?
+    @Published private(set) var dialogue: String?
+    @Published private(set) var completedFriends: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "realmFriendships") ?? [])
 
     let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let supported = RoomCaptureSession.isSupported
@@ -35,6 +43,14 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var anchor: AnchorEntity?
     private var worldAnchor: ARAnchor?
     private var creature: Entity?
+    private var preparedCreature: Entity?
+    private var questAnchor: AnchorEntity?
+    private var questWorldAnchor: ARAnchor?
+    private var keepsake: Entity?
+    private var themeRoom: CapturedRoom?
+    private var themeObserver: SIMD3<Float> = .zero
+    private var jungle: ThemeFactory.Result?
+    private var reactionTime: Double = -.infinity
     private var updates: Cancellable?
     private var elapsed: Double = 0
     private var scanStarted: Double = 0
@@ -55,12 +71,15 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     var phase: Adventure.Phase { game.phase }
     var inReach: Bool { anchor?.isAnchored == true && (distance ?? .infinity) <= 2 }
+    var itemInReach: Bool { questAnchor?.isAnchored == true && (questDistance ?? .infinity) <= 1.3 }
+    var objectiveDistance: Float? { phase == .questing ? questDistance : distance }
     var canRetryPlan: Bool { !candidates.isEmpty && !requesting }
     var addressIsValid: Bool { (try? AdventureClient.endpoint(serverAddress)) != nil }
 
     override init() {
         super.init()
         arView.session.delegate = self
+        applyTheme()
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             Task { @MainActor [weak self] in self?.tick(event.deltaTime) }
         }
@@ -85,6 +104,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let configuration = ARWorldTrackingConfiguration()
         configuration.planeDetection = [.horizontal, .vertical]
         configuration.environmentTexturing = .automatic
+        if ARWorldTrackingConfiguration.supportsSceneReconstruction(.mesh) {
+            configuration.sceneReconstruction = .mesh
+        }
         arView.session.run(configuration, options: reset ? [.resetTracking, .removeExistingAnchors] : [])
         UIApplication.shared.isIdleTimerDisabled = true
     }
@@ -99,6 +121,11 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         speech.stopSpeaking(at: .immediate)
         if let anchor { arView.scene.removeAnchor(anchor) }
         if let worldAnchor { arView.session.remove(anchor: worldAnchor) }
+        clearQuest()
+        clearTheme()
+        preparedCreature = nil
+        dialogue = nil
+        reactionTime = -.infinity
         anchor = nil
         worldAnchor = nil
         creature = nil
@@ -171,6 +198,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private func consume(_ room: CapturedRoom) {
         guard let frame = arView.session.currentFrame else { planningError = "Tracking stopped before the scan finished. Scan the room again."; return }
         let camera = position(frame.camera.transform)
+        themeRoom = room
+        themeObserver = camera
+        applyTheme()
         for object in room.objects.filter(Self.eligible).prefix(24) {
             let id = object.identifier.uuidString
             let transform = spawnTransform(for: object, fallbackCamera: camera)
@@ -227,9 +257,10 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let address = serverAddress
         let input = candidates
         let images = photos
+        let selectedFriend = friend
         planTask = Task { [weak self] in
             do {
-                let selected = try await AdventureClient.plan(address: address, candidates: input, photos: images)
+                let selected = try await AdventureClient.plan(address: address, candidates: input, photos: images, friend: selectedFriend)
                 guard !Task.isCancelled, let self, self.generation == token, self.phase == .planning else { return }
                 self.requesting = false
                 self.install(selected)
@@ -243,6 +274,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     private func install(_ selected: EncounterPlan) {
         guard let transform = spawnTransforms[selected.objectID] else { planningError = PlanError.invalidPlan.localizedDescription; return }
+        do { preparedCreature = try CreatureFactory.make(friend) }
+        catch { planningError = "Couldn't load \(friend.name): \(error.localizedDescription)"; return }
         let arAnchor = ARAnchor(name: selected.objectID, transform: transform)
         arView.session.add(anchor: arAnchor)
         let entity = AnchorEntity(anchor: arAnchor)
@@ -252,14 +285,16 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         worldAnchor = arAnchor
         plan = selected
         selectedCategory = candidates.first(where: { $0.id == selected.objectID })?.category ?? "furniture"
+        prepareQuest(friendID: selected.objectID)
         proximity = ProximityGate()
         game.acceptPlan()
         photos = []
     }
 
     private func reveal() {
-        guard let anchor, game.reveal(trackingReady: trackingReady, proximitySatisfied: true) else { return }
-        let spirit = CreatureFactory.make()
+        guard let anchor, let spirit = preparedCreature,
+              game.reveal(trackingReady: trackingReady, proximitySatisfied: true) else { return }
+        preparedCreature = nil
         spirit.scale = .one * 0.01
         anchor.addChild(spirit)
         creature = spirit
@@ -267,11 +302,153 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
+    func selectFriend(_ selected: RealmFriend) {
+        guard !started else { return }
+        friend = selected
+    }
+
+    func selectTheme(_ selected: RealmTheme) {
+        theme = selected
+        UserDefaults.standard.set(selected.rawValue, forKey: "realmTheme")
+        applyTheme()
+    }
+
+    private func applyTheme() {
+        if let jungle { arView.scene.removeAnchor(jungle.anchor) }
+        arView.environment.sceneUnderstanding.options.remove(.occlusion)
+        guard theme == .jungle else {
+            themeMessage = "Your room, just as it is."
+            return
+        }
+        guard let themeRoom else {
+            themeMessage = "Your jungle will grow after the 360° room scan. Include the floor and walls."
+            return
+        }
+        do {
+            if jungle == nil { jungle = try ThemeFactory.jungle(in: themeRoom, observer: themeObserver) }
+            if let jungle {
+                if jungle.hasContent {
+                    arView.environment.sceneUnderstanding.options.insert(.occlusion)
+                    arView.scene.addAnchor(jungle.anchor)
+                }
+                themeMessage = jungle.message
+            }
+        } catch {
+            themeMessage = "Couldn't grow the jungle. Select Jungle to try again, or scan the room again."
+        }
+    }
+
+    private func clearTheme() {
+        if let jungle { arView.scene.removeAnchor(jungle.anchor) }
+        jungle = nil
+        themeRoom = nil
+        arView.environment.sceneUnderstanding.options.remove(.occlusion)
+        themeMessage = theme == .jungle ? "Your jungle will grow after the 360° room scan. Include the floor and walls." : "Your room, just as it is."
+    }
+
+    private func prepareQuest(friendID: String) {
+        guard let location = QuestLocation.choose(from: candidates, friendID: friendID),
+              var transform = spawnTransforms[location.id] else { return }
+        // Reuse a scanned, observed furniture face, never a guessed point behind furniture.
+        // In a one-location room the item floats just above the friend, reachable in place.
+        transform.columns.3.y += location.id == friendID ? 0.6 : 0.25
+        let arAnchor = ARAnchor(name: "keepsake", transform: transform)
+        arView.session.add(anchor: arAnchor)
+        let entity = AnchorEntity(anchor: arAnchor)
+        arView.scene.addAnchor(entity)
+        questWorldAnchor = arAnchor
+        questAnchor = entity
+        questCategory = location.category == "storage" ? "cabinet" : location.category
+    }
+
+    private func clearQuest() {
+        if let questAnchor { arView.scene.removeAnchor(questAnchor) }
+        if let questWorldAnchor { arView.session.remove(anchor: questWorldAnchor) }
+        questAnchor = nil
+        questWorldAnchor = nil
+        keepsake = nil
+        questDistance = nil
+        questCategory = ""
+    }
+
     func talk() {
-        guard game.talk(trackingReady: trackingReady, inReach: inReach) else { return }
-        let line = AVSpeechUtterance(string: plan?.greeting ?? "You found me! I'm Pip.")
-        line.rate = 0.47
+        guard let questAnchor, game.talk(trackingReady: trackingReady, inReach: inReach) else { return }
+        let item = CreatureFactory.keepsake(friend)
+        questAnchor.addChild(item)
+        keepsake = item
+        speak((plan?.greeting ?? "Hi! I'm \(friend.name).") + " " + friend.questRequest)
+        react()
+    }
+
+    func collectKeepsake() {
+        guard game.collect(trackingReady: trackingReady, inReach: itemInReach) else { return }
+        clearQuest()
+        dialogue = nil
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
+
+    func finishQuest() {
+        guard game.finishQuest(trackingReady: trackingReady, inReach: inReach) else { return }
+        completedFriends.insert(friend.rawValue)
+        UserDefaults.standard.set(Array(completedFriends).sorted(), forKey: "realmFriendships")
+        speak(friend.thanks)
+        react()
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    func chat() {
+        guard phase == .complete, trackingReady, inReach else { return }
+        speak(friend.chat)
+        react()
+    }
+
+    func pet() {
+        guard [.revealed, .questing, .returning, .complete].contains(phase), trackingReady, inReach else { return }
+        dialogue = "\(friend.name) does a happy little wiggle."
+        react()
+        UIImpactFeedbackGenerator(style: .soft).impactOccurred()
+    }
+
+    private func react() { reactionTime = elapsed }
+    private func speak(_ text: String) {
+        dialogue = text
+        speech.stopSpeaking(at: .immediate)
+        let line = AVSpeechUtterance(string: text)
+        line.rate = friend == .pebblin ? 0.43 : 0.48
+        line.pitchMultiplier = friend == .glimlo ? 1.18 : 1.05
         speech.speak(line)
+    }
+
+    func chooseAnotherFriend() {
+        generation = UUID()
+        planTask?.cancel()
+        planTask = nil
+        capture?.delegate = nil
+        capture?.stop(pauseARSession: false)
+        capture = nil
+        speech.stopSpeaking(at: .immediate)
+        if let anchor { arView.scene.removeAnchor(anchor) }
+        if let worldAnchor { arView.session.remove(anchor: worldAnchor) }
+        clearQuest()
+        clearTheme()
+        anchor = nil
+        worldAnchor = nil
+        creature = nil
+        preparedCreature = nil
+        candidates = []
+        spawnTransforms = [:]
+        cameraPositions = []
+        photos = []
+        photoSectors = []
+        plan = nil
+        dialogue = nil
+        requesting = false
+        distance = nil
+        arView.session.pause()
+        UIApplication.shared.isIdleTimerDisabled = false
+        started = false
+        trackingReady = false
+        game = Adventure()
     }
 
     func dismissIssue() { issue = nil }
@@ -284,8 +461,16 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             let age = Float(elapsed - revealTime)
             let ease = 1 - pow(1 - min(1, age / 0.7), 3)
             creature.scale = .one * max(0.01, ease)
-            creature.position.y = -0.08 * (1 - ease) + sin(age * 2.1) * 0.012
-            creature.orientation = simd_quatf(angle: sin(age * 1.4) * 0.12, axis: [0, 1, 0])
+            let reactionAge = Float(elapsed - reactionTime)
+            let reaction = reactionAge < 1.4 ? sin(reactionAge * 14) * (1 - reactionAge / 1.4) : 0
+            let floatHeight: Float = friend == .glimlo ? 0.024 : 0.009
+            creature.position.y = -0.08 * (1 - ease) + sin(age * 2.1) * floatHeight + abs(reaction) * 0.035
+            creature.orientation = simd_quatf(angle: sin(age * 1.4) * 0.10, axis: [0, 1, 0])
+                * simd_quatf(angle: reaction * 0.18, axis: [0, 0, 1])
+        }
+        if let keepsake {
+            keepsake.position.y = sin(Float(elapsed) * 2) * 0.025
+            keepsake.orientation = simd_quatf(angle: Float(elapsed) * 0.65, axis: [0, 1, 0])
         }
         guard elapsed - lastHUDUpdate > 0.15 else { return }
         lastHUDUpdate = elapsed
@@ -316,6 +501,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                 capturePhoto(frame, yaw: yaw)
                 if coverage.complete, objectCount > 0, elapsed - scanStarted >= 12 { finishScan() }
             }
+        }
+        if let questAnchor {
+            questDistance = horizontalDistance(position(frame.camera.transform), questAnchor.position(relativeTo: nil))
         }
         if let anchor {
             distance = horizontalDistance(position(frame.camera.transform), anchor.position(relativeTo: nil))

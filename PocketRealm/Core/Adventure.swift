@@ -1,7 +1,7 @@
 import Foundation
 
 struct Adventure {
-    enum Phase: Equatable { case scanning, planning, exploring, revealed, complete }
+    enum Phase: Equatable { case scanning, planning, exploring, revealed, questing, returning, complete }
     private(set) var phase: Phase = .scanning
     mutating func finishScan() { if phase == .scanning { phase = .planning } }
     mutating func acceptPlan() { if phase == .planning { phase = .exploring } }
@@ -12,6 +12,16 @@ struct Adventure {
     }
     @discardableResult mutating func talk(trackingReady: Bool, inReach: Bool) -> Bool {
         guard phase == .revealed, trackingReady, inReach else { return false }
+        phase = .questing
+        return true
+    }
+    @discardableResult mutating func collect(trackingReady: Bool, inReach: Bool) -> Bool {
+        guard phase == .questing, trackingReady, inReach else { return false }
+        phase = .returning
+        return true
+    }
+    @discardableResult mutating func finishQuest(trackingReady: Bool, inReach: Bool) -> Bool {
+        guard phase == .returning, trackingReady, inReach else { return false }
         phase = .complete
         return true
     }
