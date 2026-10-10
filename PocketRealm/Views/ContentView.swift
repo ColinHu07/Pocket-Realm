@@ -8,6 +8,7 @@ private let paper = Color(red: 0.96, green: 0.96, blue: 0.89)
 
 struct ContentView: View {
     @ObservedObject var experience: ARExperience
+    @State private var previewFriend: RealmFriend?
 
     var body: some View {
         ZStack {
@@ -18,6 +19,7 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.3), value: experience.phase)
         .sheet(isPresented: $experience.connectionPresented) { connection }
         .sheet(isPresented: $experience.themePresented) { themePicker }
+        .sheet(item: $previewFriend) { FriendPreview(friend: $0) }
         .alert("A little help needed", isPresented: Binding(get: { experience.issue != nil }, set: { if !$0 { experience.dismissIssue() } })) {
             if experience.cameraDenied {
                 Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
@@ -38,6 +40,10 @@ struct ContentView: View {
                             .font(.system(size: 16)).foregroundStyle(paper.opacity(0.65)).lineSpacing(3)
                     }
                     friendPicker
+                    Button { previewFriend = experience.friend } label: {
+                        Label("Meet \(experience.friend.name) · try their reactions", systemImage: "heart.circle.fill")
+                            .font(.system(size: 14, weight: .semibold)).foregroundStyle(lime)
+                    }.accessibilityIdentifier("previewFriend")
                     Button { experience.themePresented = true } label: {
                         HStack(spacing: 14) {
                             Image(systemName: experience.theme.symbol)
@@ -87,7 +93,7 @@ struct ContentView: View {
     }
 
     private var friendPicker: some View {
-        HStack(spacing: 10) {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 12) {
             ForEach(RealmFriend.allCases) { friend in
                 Button { experience.selectFriend(friend) } label: {
                     VStack(spacing: 0) {
@@ -111,7 +117,8 @@ struct ContentView: View {
 
     private var friendInteractions: some View {
         HStack(spacing: 18) {
-            Button(action: experience.pet) { Label("Pet \(experience.friend.name)", systemImage: "hand.draw") }
+            Button(action: experience.pet) { Label("Pet", systemImage: "hand.draw") }
+            Button(action: experience.play) { Label("Play", systemImage: "sparkles") }
             if experience.phase == .complete {
                 Button(action: experience.chat) { Label("Chat", systemImage: "bubble.left.and.bubble.right") }
             }
@@ -232,16 +239,18 @@ struct ContentView: View {
                     .font(.subheadline).foregroundStyle(lime)
                 action(experience.itemInReach ? "Collect \(experience.friend.itemName)" : "Move closer to the keepsake", icon: "sparkles", enabled: experience.trackingReady && experience.itemInReach, action: experience.collectKeepsake)
                 footnote("It's floating outside the furniture. You don't need to open or move anything.")
+                friendInteractions
             case .returning:
                 Label("\(experience.friend.itemName.capitalized) collected", systemImage: "checkmark.circle.fill")
                     .font(.subheadline).foregroundStyle(lime)
                 action(experience.inReach ? "Give it to \(experience.friend.name)" : "Return to \(experience.friend.name)", icon: "gift", enabled: experience.trackingReady && experience.inReach, action: experience.finishQuest)
+                friendInteractions
             case .complete:
                 Label(experience.friend.reward + " · friendship badge", systemImage: experience.friend.symbol)
                     .font(.system(size: 13, weight: .semibold)).foregroundStyle(lime)
                 friendInteractions
                 action("Meet another friend", icon: "arrow.right", action: experience.chooseAnotherFriend)
-                footnote("\(experience.completedFriends.count) of 3 friendships made. Your badges are saved.")
+                footnote("\(experience.completedFriends.count) of \(RealmFriend.allCases.count) friendships made. Your badges are saved.")
             }
         }.padding(22).background(ink.opacity(0.96), in: RoundedRectangle(cornerRadius: 28))
             .overlay(RoundedRectangle(cornerRadius: 28).stroke(.white.opacity(0.12), lineWidth: 1))

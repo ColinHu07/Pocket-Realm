@@ -1,9 +1,16 @@
-// Run on macOS with: swift scripts/validate_creatures.swift /absolute/path/to/Creatures
+// Run on macOS with: swift scripts/validate_creatures.swift /absolute/path/to/Creatures /absolute/path/to/manifest.json
 import Foundation
 import RealityKit
 
 let folder = URL(fileURLWithPath: CommandLine.arguments[1])
-for name in ["Mosskip", "Glimlo", "Pebblin"] {
+struct Asset: Decodable {
+    let meshes: Int
+    let textures: Int
+    let motionControls: [String]
+}
+let manifestURL = URL(fileURLWithPath: CommandLine.arguments[2])
+let manifest = try JSONDecoder().decode([String: Asset].self, from: Data(contentsOf: manifestURL))
+for name in manifest.keys.sorted() {
     let entity = try Entity.load(contentsOf: folder.appendingPathComponent(name + ".usdz"))
     let bounds = entity.visualBounds(relativeTo: nil)
     let size = bounds.extents
@@ -24,11 +31,13 @@ for name in ["Mosskip", "Glimlo", "Pebblin"] {
         for child in node.children { inspect(child) }
     }
     inspect(entity)
-    let expectedModels = ["Mosskip": 15, "Glimlo": 16, "Pebblin": 10]
-    let expectedPainted = ["Mosskip": 1, "Glimlo": 3, "Pebblin": 2]
-    precondition(models == expectedModels[name], "Missing geometry: \(name)")
+    let expected = manifest[name]!
+    for control in expected.motionControls {
+        precondition(entity.findEntity(named: control) != nil, "Missing runtime motion control: \(control)")
+    }
+    precondition(models == expected.meshes, "Missing geometry: \(name)")
     precondition(continuousBodies == 1, "Missing sculpted body: \(name)")
-    precondition(paintedModels == expectedPainted[name], "Paint textures did not load: \(name)")
+    precondition(paintedModels == expected.textures, "Paint textures did not load: \(name)")
     print("\(name): \(models) model entities, \(size) meters, \(paintedModels) painted materials loaded")
 }
-print("All three assets load in RealityKit.")
+print("All six assets and their motion controls load in RealityKit.")

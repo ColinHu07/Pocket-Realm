@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        A60000000000000000000005 = {isa = PBXBuildFile; fileRef = A60000000000000000000006; };
+        A60000000000000000000003 = {isa = PBXBuildFile; fileRef = A60000000000000000000004; };
+        A60000000000000000000001 = {isa = PBXBuildFile; fileRef = A60000000000000000000002; };
         E30000000000000000000001 /* RoomUnderstanding.swift in Sources */ = {isa = PBXBuildFile; fileRef = E30000000000000000000002; };
         D20000000000000000000001 /* RealmTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000002; };
         D20000000000000000000003 /* ThemeFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000000000000000000004; };
@@ -22,6 +25,9 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        A60000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Views/FriendPreview.swift; sourceTree = SOURCE_ROOT; };
+        A60000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/CreatureAnimator.swift; sourceTree = SOURCE_ROOT; };
+        A60000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/FriendMotion.swift; sourceTree = SOURCE_ROOT; };
         E30000000000000000000002 /* RoomUnderstanding.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RoomUnderstanding.swift; sourceTree = SOURCE_ROOT; };
         D20000000000000000000002 /* RealmTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RealmTheme.swift; sourceTree = SOURCE_ROOT; };
         D20000000000000000000004 /* ThemeFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/ThemeFactory.swift; sourceTree = SOURCE_ROOT; };
@@ -51,6 +57,9 @@
 		B28B7AF69320201D1CF206EB = {
 			isa = PBXGroup;
 			children = (
+                A60000000000000000000006,
+                A60000000000000000000004,
+                A60000000000000000000002,
                 E30000000000000000000002,
                 D20000000000000000000002,
                 D20000000000000000000004,
@@ -138,6 +147,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+                A60000000000000000000005,
+                A60000000000000000000003,
+                A60000000000000000000001,
                 E30000000000000000000001,
                 D20000000000000000000001,
                 D20000000000000000000003,

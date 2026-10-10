@@ -1,16 +1,19 @@
 # Pocket Realm
 
-A native iPhone AR adventure with three original Blender characters. First scan your room: Gemini interprets its layout and snapshots, designs a Jungle treatment, and plans both quest locations. Review the room plan, then explore, meet your friend, and recover a glowing keepsake to earn a saved friendship badge.
+A native iPhone AR adventure with six original Blender characters. First scan your room: Gemini interprets its layout and snapshots, designs a Jungle treatment, and plans both quest locations. Review the room plan, then explore, meet your friend, and recover a glowing keepsake to earn a saved friendship badge.
 
-![Mosskip, Glimlo, and Pebblin](Art/Creatures/friends-lineup.png)
+![Mosskip, Glimlo, Pebblin, Bloopi, Nibbi, and Cindlet](Art/Creatures/friends-lineup.png)
 
 | Friend | Personality | Quest | Badge |
 | --- | --- | --- | --- |
 | **Mosskip** | A mint-green sprout courier with a leaky seed satchel | Find a lost dew seed | Sprout Scout |
 | **Glimlo** | A bashful peach moth with petal wings and a tiny lantern | Recover a lantern spark | Little Light |
 | **Pebblin** | A sleepy lilac pebble snail with a crystal shell | Bring back a runaway dream pearl | Dream Keeper |
+| **Bloopi** | A blue tide pup with rosy gills and a paddle tail | Find the perfect ripple stone | Puddle Pal |
+| **Nibbi** | A strawberry bunny baker with floppy ears and a cookie pocket | Recover a sugar star for friendship cookies | Cookie Comrade |
+| **Cindlet** | A honey-colored ember fox who keeps small wishes warm | Bring back a wish cinder | Cozy Guardian |
 
-All geometry and materials were authored for this project in Blender. No external character models or textures are used. The app bundles the actual USDZ exports; portraits are Blender renders of those same models. One chosen friend appears per scan. You can pet them, hear their greeting, complete their quest, and chat afterward. The three quests share a find-and-return mechanic, with distinct keepsakes, dialogue, and rewards.
+All geometry and materials were authored for this project in Blender. No external character models or textures are used. The app bundles the actual USDZ exports; portraits are Blender renders of those same models. One chosen friend appears per scan. You can tap them to pet, play together, hear their greeting, complete their quest, and chat afterward. The six-card roster opens a camera-free preview with Hello, Pet, Play, and Celebrate buttons; drag to turn the model. Previews do not award badges. The six quests share a find-and-return mechanic, with distinct keepsakes, dialogue, and rewards.
 
 ## Run the Gemini server
 
@@ -92,9 +95,9 @@ Room-planning validation covers the shared Swift/server JSON contract, mandatory
 
 ## Blender sources and exports
 
-- `Art/Creatures/PocketRealm-Friends.blend`: editable scene with all three named characters, materials, camera, and studio lighting. Each character has a separate parent; the lineup positions are for presentation only.
+- `Art/Creatures/PocketRealm-Friends.blend`: editable scene with all six named characters, materials, camera, and studio lighting. After the reaction-preview step below, frames 1–168 contain an animated demonstration with labeled cues. Each character has a separate parent; the lineup positions are for presentation only.
 - `Art/Creatures/*.glb`: individual portable models at the origin.
-- `PocketRealm/Resources/Creatures/*.usdz`: app assets, in meters with Y up and faces pointing toward +Z. They are roughly 40–47 cm tall. The Xcode folder resource preserves the `Creatures` path.
+- `PocketRealm/Resources/Creatures/*.usdz`: app assets, in meters with Y up and faces pointing toward +Z. They are roughly 35–48 cm tall. The Xcode folder resource preserves the `Creatures` path.
 - `Art/Creatures/*.png`: individual portraits and the lineup. The same portraits are copied into the app's asset catalog.
 - `Art/Creatures/Textures/*.png`: original baked skin, wing, and shell paint. These textures are also packed into the Blender scene and individual exports.
 - `scripts/build_creatures.py`: reproducible Blender 5.2 authoring, export, and render script. Uses Blender's bundled Python and NumPy; no add-ons or extra dependencies. Run from this repository:
@@ -102,10 +105,32 @@ Room-planning validation covers the shared Swift/server JSON contract, mandatory
 ```sh
 /Applications/Blender.app/Contents/MacOS/Blender --background --python scripts/build_creatures.py
 /Applications/Blender.app/Contents/MacOS/Blender --background --python scripts/inspect_creatures.py
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift scripts/validate_creatures.swift "$PWD/PocketRealm/Resources/Creatures"
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift scripts/validate_creatures.swift "$PWD/PocketRealm/Resources/Creatures" "$PWD/Art/Creatures/manifest.json"
 ```
 
-Each character has one closed, continuous body: the main volumes are voxel-fused, relaxed, subdivided, and reduced for export. Face and belly colors are painted onto the surface; Glimlo has continuous wing membranes, and Pebblin's spiral is fused into its shell. Eyes and accessories remain separate. The USDZs contain 15/16/10 mesh entities and about 51k/69k/90k triangles respectively, with embedded 1024-pixel base-color maps and USD Preview Surface materials. Blender's soft subsurface shading is a studio-render enhancement; runtime lighting can look different. Idle floating, entrance scaling, and pet/reward wiggles are driven by RealityKit; the assets are not skeletal animation rigs. Quest keepsakes are small RealityKit primitives.
+Each character has one closed, continuous body: the main volumes are voxel-fused, relaxed, subdivided, and reduced for export. Face and belly colors are painted onto the surface; Glimlo has continuous wing membranes, and Pebblin's spiral is fused into its shell. Eyes and accessories remain separate. The six USDZs contain 10–18 mesh entities and about 51k–90k triangles each, with embedded 1024-pixel base-color maps and USD Preview Surface materials. Blender's soft subsurface shading is a studio-render enhancement; runtime lighting can look different. RealityKit drives blinking, breathing, speech nods, pet squishes with hearts, play dances, and star celebrations from `FriendMotion` through named eye, mouth, wing/leaf/ear, tail, and shell pivots. These are procedural transforms, not skeletal animation rigs. The preview and AR use the same animator. Absolute poses prevent drift, rapid taps are debounced, and earned celebrations finish before another reaction. AR reactions pause during tracking loss or suspension; Reduce Motion removes hops, spins, appendage motion, and particles. Quest keepsakes are small RealityKit primitives.
+
+Create the playable Blender timeline and a small MP4 using the exact app pose sampler (requires Xcode command-line tools and FFmpeg):
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swiftc \
+  PocketRealm/Core/RealmFriend.swift PocketRealm/Core/FriendMotion.swift \
+  scripts/export_motion_preview.swift -o build/export-motion-preview
+build/export-motion-preview "$PWD/build/friend-motion-preview.json"
+/Applications/Blender.app/Contents/MacOS/Blender --background --python scripts/build_reaction_preview.py
+```
+
+Run this after `build_creatures.py`, which creates the neutral scene. To re-render an already-keyframed scene, append `-- --render-only`. The reel is saved as `Art/Creatures/friends-reactions.mp4`; it demonstrates the same motions under Blender lighting, not a phone recording. The live app computes continuous poses at its frame rate; the reel samples them at 12 fps.
+
+The runtime animation integration check loads every USDZ and exercises all six reactions, checking attachment points, bounded transforms, and particle cleanup:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swiftc \
+  PocketRealm/Core/RealmFriend.swift PocketRealm/Core/FriendMotion.swift \
+  PocketRealm/AR/CreatureAnimator.swift scripts/validate_friend_animations.swift \
+  -o build/validate-friend-animations
+build/validate-friend-animations "$PWD/PocketRealm/Resources/Creatures"
+```
 
 Restart the Python server after updating it so greetings use the new character identities. Requests without a character default to Mosskip; unknown character names are rejected.
 
@@ -128,3 +153,5 @@ Actual room detection, scan-to-game coordinate alignment, placement outside furn
 Character update validation: seven Swift tests and eleven server tests passed. The unsigned iPhone and simulator builds passed, all three USDZs loaded in RealityKit with materials, and the Blender portraits and lineup were visually inspected. Live Gemini and physical room-scan/quest behavior still need verification on the LiDAR-equipped iPhone; this character update has not been installed on the phone.
 
 Sculpt revision validation: all three exported bodies passed connectivity and closed-surface checks, embedded textures resolved and loaded in RealityKit, and the unsigned iPhone build passed. Updated portraits and the lineup were rendered and visually inspected, and the revised scene was opened in Blender. Physical-device appearance and performance remain unverified.
+
+Six-friend commit validation: 24 Swift tests and 20 server tests passed, the unsigned iPhone build passed, and all six bundled USDZs matched the checked exports. The character assets and all six reaction types also passed the RealityKit loading/animation checks. A development build containing these six characters was installed and launched on the iPhone 17 Pro Max; full room-scan interaction and device appearance still need hands-on verification.

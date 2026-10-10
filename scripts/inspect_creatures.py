@@ -8,7 +8,7 @@ from pxr import Usd, UsdGeom, UsdShade
 
 root=Path(__file__).resolve().parents[1]
 manifest=json.loads((root/'Art'/'Creatures'/'manifest.json').read_text())
-for name in ('Mosskip','Glimlo','Pebblin'):
+for name in manifest:
     path=root/'PocketRealm'/'Resources'/'Creatures'/f'{name}.usdz'
     stage=Usd.Stage.Open(str(path))
     cache=UsdGeom.BBoxCache(0,[UsdGeom.Tokens.default_])
@@ -46,12 +46,14 @@ for name in ('Mosskip','Glimlo','Pebblin'):
     assert material, f'Missing skin material: {name}'
     with zipfile.ZipFile(path) as package:
         textures=[p for p in stage.Traverse() if p.GetAttribute('inputs:file')]
-        assert len(textures)=={'Mosskip':1,'Glimlo':3,'Pebblin':2}[name]
+        assert len(textures)==manifest[name]['textures']
         for shader in textures:
             asset=shader.GetAttribute('inputs:file').Get()
             texture=asset.path.removeprefix('./')
             assert texture in package.namelist(), f'External texture: {texture}'
             assert package.read(texture)[:8]==b'\x89PNG\r\n\x1a\n'
             assert asset.resolvedPath, f'Unresolved texture: {texture}'
+    for control in manifest[name]['motionControls']:
+        assert any(p.GetName()==control for p in stage.Traverse()), f'Missing motion control: {control}'
     print(f'{name}: {len(meshes)} meshes, {triangles} triangles, closed connected body, {len(textures)} embedded textures, Y-up, {size} meters')
 print('ALL_USDZ_ASSETS_VALID')

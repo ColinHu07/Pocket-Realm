@@ -4,20 +4,89 @@
     "meshes": 15,
     "heightMeters": 0.481,
     "bodyConnectedComponents": 1,
-    "paintedBaseColor": true
+    "paintedBaseColor": true,
+    "textures": 1,
+    "motionControls": [
+      "Mosskip__AppendageL",
+      "Mosskip__AppendageR",
+      "Mosskip__EyeL",
+      "Mosskip__EyeR",
+      "Mosskip__Mouth"
+    ]
   },
   "Glimlo": {
     "triangles": 69066,
     "meshes": 16,
     "heightMeters": 0.456,
     "bodyConnectedComponents": 1,
-    "paintedBaseColor": true
+    "paintedBaseColor": true,
+    "textures": 3,
+    "motionControls": [
+      "Glimlo__AppendageL",
+      "Glimlo__AppendageR",
+      "Glimlo__EyeL",
+      "Glimlo__EyeR",
+      "Glimlo__Mouth"
+    ]
   },
   "Pebblin": {
     "triangles": 90182,
     "meshes": 10,
     "heightMeters": 0.401,
     "bodyConnectedComponents": 1,
-    "paintedBaseColor": true
+    "paintedBaseColor": true,
+    "textures": 2,
+    "motionControls": [
+      "Pebblin__EyeL",
+      "Pebblin__EyeR",
+      "Pebblin__Mouth",
+      "Pebblin__Shell"
+    ]
+  },
+  "Bloopi": {
+    "triangles": 53650,
+    "meshes": 13,
+    "heightMeters": 0.348,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true,
+    "textures": 1,
+    "motionControls": [
+      "Bloopi__AppendageL",
+      "Bloopi__AppendageR",
+      "Bloopi__EyeL",
+      "Bloopi__EyeR",
+      "Bloopi__Mouth",
+      "Bloopi__Tail"
+    ]
+  },
+  "Nibbi": {
+    "triangles": 55980,
+    "meshes": 18,
+    "heightMeters": 0.463,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true,
+    "textures": 1,
+    "motionControls": [
+      "Nibbi__AppendageL",
+      "Nibbi__AppendageR",
+      "Nibbi__EyeL",
+      "Nibbi__EyeR",
+      "Nibbi__Mouth",
+      "Nibbi__Tail"
+    ]
+  },
+  "Cindlet": {
+    "triangles": 54200,
+    "meshes": 11,
+    "heightMeters": 0.395,
+    "bodyConnectedComponents": 1,
+    "paintedBaseColor": true,
+    "textures": 2,
+    "motionControls": [
+      "Cindlet__EyeL",
+      "Cindlet__EyeR",
+      "Cindlet__Mouth",
+      "Cindlet__Tail"
+    ]
   }
 }
