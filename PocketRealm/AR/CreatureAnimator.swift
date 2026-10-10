@@ -78,7 +78,7 @@ final class CreatureAnimator {
            lowest.isFinite {
             // Squashes and tilts change the bottom of the model. Keep it on the
             // support while preserving intentional upward hops; particles cannot lift it.
-            root.position.y += 0.008 + max(0, pose.position.y) - lowest
+            root.position.y += SurfacePlacement.supportClearance + max(0, pose.position.y) - lowest
         }
         for (isHeart, particles) in [(true, hearts), (false, stars)] {
             let enabled = !reducedMotion && pose.effect > 0 && motion.reaction == (isHeart ? .pet : .celebrate)

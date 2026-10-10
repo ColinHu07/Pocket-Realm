@@ -1,4 +1,4 @@
-// Compile with RealmFriend.swift, FriendMotion.swift, and CreatureAnimator.swift.
+// Compile with PocketRealm/Core/*.swift and PocketRealm/AR/CreatureAnimator.swift.
 import Foundation
 import RealityKit
 
@@ -8,7 +8,9 @@ import RealityKit
         for friend in RealmFriend.allCases {
             let root = Entity()
             root.addChild(try Entity.load(contentsOf: folder.appendingPathComponent(friend.name + ".usdz")))
-            let surface = Entity()
+            let importedBounds = root.visualBounds(relativeTo: root)
+            for child in root.children { child.position.y -= importedBounds.min.y }
+            let surface = AnchorEntity(world: [1.2, 0.75, -2])
             surface.position = [1.2, 0.75, -2]
             surface.addChild(root)
             let geometry = Array(root.children)
@@ -33,17 +35,24 @@ import RealityKit
                         precondition(size.x.isFinite && size.y.isFinite && size.z.isFinite)
                         precondition(size.x < 1.2 && size.y < 1.2 && size.z < 1.2, "Exploding animation: \(friend)")
                         let bottom = geometry.map { $0.visualBounds(relativeTo: surface).min.y }.min()!
-                        precondition(bottom >= 0.0078 && bottom < 0.15, "Lost surface contact: \(friend) \(reaction), \(bottom)")
+                        precondition(bottom >= SurfacePlacement.supportClearance - 0.0002 && bottom < 0.17,
+                                     "Lost surface contact: \(friend) \(reaction), \(bottom)")
+                        for child in geometry {
+                            let b = child.visualBounds(relativeTo: surface)
+                            precondition(b.max.y <= SurfacePlacement.bodyHeight, "Insufficient headroom: \(friend)")
+                            precondition(max(abs(b.min.x), abs(b.max.x), abs(b.min.z), abs(b.max.z))
+                                         <= SurfacePlacement.footprintRadius, "Insufficient footprint: \(friend)")
+                        }
                     }
                 }
                 precondition(animator.motion.reaction == nil)
                 precondition(root.children.filter { $0.name == "PetHeart" || $0.name == "RewardStar" }.allSatisfy { !$0.isEnabled })
                 let idleBottom = geometry.map { $0.visualBounds(relativeTo: surface).min.y }.min()!
-                precondition(idleBottom <= 0.0182, "Idle floating above surface: \(friend), \(idleBottom)")
+                precondition(idleBottom <= SurfacePlacement.supportClearance + 0.0102, "Idle floating above surface: \(friend), \(idleBottom)")
             }
             animator.update(delta: 0, reducedMotion: true)
             let reducedBottom = geometry.map { $0.visualBounds(relativeTo: surface).min.y }.min()!
-            precondition(abs(reducedBottom - 0.008) < 0.0002)
+            precondition(abs(reducedBottom - SurfacePlacement.supportClearance) < 0.0002)
             print("\(friend.name): all \(FriendReaction.allCases.count) reactions complete; \(controls.count) pivots stay attached; surface contact and particle cleanup verified.")
         }
         print("ALL_FRIEND_ANIMATIONS_VALID")

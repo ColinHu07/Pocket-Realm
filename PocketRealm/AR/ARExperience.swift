@@ -480,23 +480,25 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
 
     private func placement(for object: CapturedRoom.Object, in room: CapturedRoom, observer: SIMD3<Float>,
                            context: RoomScanContext) -> simd_float4x4? {
-        guard let transform = SurfacePlacement.transform(category: String(describing: object.category),
+        let obstacles = room.objects.filter { $0.identifier != object.identifier }.map {
+            DecorationVolume(inverse: simd_inverse($0.transform), half: $0.dimensions / 2)
+        }
+        return SurfacePlacement.transform(category: String(describing: object.category),
             dimensions: object.dimensions, object: object.transform, observer: observer,
-            surfaces: context.surfaces) else { return nil }
-        // Reject a floor/table point occupied by other scanned furniture.
-        let point = position(transform) + SIMD3<Float>(0, 0.12, 0)
-        guard !room.objects.contains(where: { other in
-            other.identifier != object.identifier && DecorationVolume(inverse: simd_inverse(other.transform),
-                half: other.dimensions / 2).contains(point, padding: SurfacePlacement.footprintRadius)
-        }) else { return nil }
-        return transform
+            surfaces: context.surfaces, obstacles: obstacles)
     }
 
     private func refineSupport(_ transform: simd_float4x4) -> simd_float4x4 {
         let query = ARRaycastQuery(origin: position(transform) + SIMD3<Float>(0, SurfacePlacement.refinementLimit + 0.02, 0),
             direction: [0, -1, 0], allowing: .existingPlaneGeometry, alignment: .horizontal)
         let hits = arView.session.raycast(query).map { position($0.worldTransform) }
-        return SurfacePlacement.refined(transform, hits: hits)
+        let refined = SurfacePlacement.refined(transform, hits: hits)
+        guard let roomContext, let themeRoom else { return transform }
+        let obstacles = themeRoom.objects.map {
+            DecorationVolume(inverse: simd_inverse($0.transform), half: $0.dimensions / 2)
+        }
+        return SurfacePlacement.hasRoom(at: position(refined), surfaces: roomContext.surfaces, obstacles: obstacles)
+            ? refined : transform
     }
 
     func requestPlan() {

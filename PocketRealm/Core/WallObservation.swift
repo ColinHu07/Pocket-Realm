@@ -42,6 +42,19 @@ struct DecorationVolume {
     let inverse: simd_float4x4
     let half: SIMD3<Float>
 
+    /// Conservative box overlap in the obstacle's frame. Tests the complete
+    /// character, rather than a single point near its feet.
+    func intersects(minimum: SIMD3<Float>, maximum: SIMD3<Float>) -> Bool {
+        let center = inverse * SIMD4((minimum + maximum) / 2, 1)
+        let radius = (maximum - minimum) / 2
+        for axis in 0..<3 {
+            let extent = abs(inverse[0][axis]) * radius.x
+                + abs(inverse[1][axis]) * radius.y + abs(inverse[2][axis]) * radius.z
+            if abs(center[axis]) >= half[axis] + extent { return false }
+        }
+        return true
+    }
+
     func contains(_ point: SIMD3<Float>, padding: Float) -> Bool {
         let p = inverse * SIMD4(point, 1)
         return abs(p.x) <= half.x + padding && abs(p.y) <= half.y + padding && abs(p.z) <= half.z + padding

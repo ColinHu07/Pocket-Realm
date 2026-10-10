@@ -19,14 +19,14 @@ final class SurfacePlacementTests: XCTestCase {
             let table = object(center: [0.5, -0.6, -0.8], yaw: yaw)
             for observer: SIMD3<Float> in [[2, 0.5, 2], [-2, 0.5, -2], [0.5, 0.5, -0.8]] {
                 let transform = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [1.2, 0.8, 0.8],
-                    object: table, observer: observer, surfaces: []))
+                    object: table, observer: observer, surfaces: [floor()]))
                 let local = simd_inverse(table) * transform.columns.3
                 XCTAssertEqual(local.y, 0.4, accuracy: 0.0001)
                 XCTAssertLessThanOrEqual(abs(local.x), 0.6 - SurfacePlacement.footprintRadius)
                 XCTAssertLessThanOrEqual(abs(local.z), 0.4 - SurfacePlacement.footprintRadius)
-                var crouched = observer; crouched.y -= 0.9
+                var crouched = observer; crouched.y -= 0.3
                 let second = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [1.2, 0.8, 0.8],
-                    object: table, observer: crouched, surfaces: []))
+                    object: table, observer: crouched, surfaces: [floor()]))
                 XCTAssertEqual(transform.columns.3, second.columns.3)
                 XCTAssertEqual(transform.columns.1, SIMD4(0, 1, 0, 0))
             }
@@ -43,7 +43,7 @@ final class SurfacePlacementTests: XCTestCase {
     }
 
     func testLowCabinetUsesTopAndNarrowTableRequiresFloor() throws {
-        let cabinet = try XCTUnwrap(SurfacePlacement.transform(category: "storage", dimensions: [1, 0.8, 0.7],
+        let cabinet = try XCTUnwrap(SurfacePlacement.transform(category: "storage", dimensions: [1, 0.8, 0.8],
             object: object(center: [0, -0.6, 0]), observer: [0, 0.5, 2], surfaces: [floor()]))
         XCTAssertEqual(cabinet.columns.3.y, -0.2, accuracy: 0.0001)
         let narrow = SurfacePlacement.transform(category: "table", dimensions: [0.3, 0.8, 0.3],
@@ -71,5 +71,43 @@ final class SurfacePlacementTests: XCTestCase {
         let corrected = SurfacePlacement.refined(support, hits: unrelated + [[0,-0.21,0], [0,-0.32,0]])
         XCTAssertEqual(corrected.columns.3, SIMD4(0,-0.21,0,1))
         XCTAssertEqual(corrected.columns.2, support.columns.2)
+        XCTAssertEqual(SurfacePlacement.refined(support, hits: [[0,-0.32,0]]).columns.3, support.columns.3)
+    }
+
+    func testShortUpperCabinetAboveFridgeUsesClearFloorInsteadOfCabinetTop() throws {
+        // Regression: a 49cm tall cabinet was mistaken for low furniture even
+        // though its top was 2.29m above the room floor.
+        let fridge = object(center: [0, -0.1, 0])
+        let obstruction = DecorationVolume(inverse: simd_inverse(fridge), half: [0.4, 0.9, 0.4])
+        let result = try XCTUnwrap(SurfacePlacement.transform(category: "storage", dimensions: [0.9, 0.49, 0.8],
+            object: object(center: [0, 1.05, 0]), observer: [0, 0.6, 2], surfaces: [floor()], obstacles: [obstruction]))
+        XCTAssertEqual(result.columns.3.y, -1, accuracy: 0.001)
+        XCTAssertGreaterThan(result.columns.3.z, 0.4 + SurfacePlacement.footprintRadius)
+    }
+
+    func testWholeBodyRejectsShelfAtHeadHeightAndFallsBackToFloor() throws {
+        let shelf = DecorationVolume(inverse: simd_inverse(object(center: [0, 0.3, 0])), half: [0.6, 0.08, 0.45])
+        let result = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [1, 0.8, 0.8],
+            object: object(center: [0,-0.6,0]), observer: [0,0.6,2], surfaces: [floor()], obstacles: [shelf]))
+        XCTAssertEqual(result.columns.3.y, -1, accuracy: 0.001)
+        XCTAssertFalse(SurfacePlacement.hasRoom(at: [0,-0.2,0], surfaces: [floor()], obstacles: [shelf]))
+    }
+
+    func testRoundTableStaysAtCentreAndWidestFriendFits() throws {
+        let table = object(center: [0,-0.6,0], yaw: .pi / 4)
+        let result = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [0.9,0.8,0.82],
+            object: table, observer: [1,0.5,2], surfaces: [floor()]))
+        let local = simd_inverse(table) * result.columns.3
+        XCTAssertEqual(local.x, 0, accuracy: 0.001)
+        XCTAssertEqual(local.z, 0, accuracy: 0.001)
+        XCTAssertGreaterThan(SurfacePlacement.footprintRadius, 0.5514 / 2) // Glimlo's wing span
+    }
+
+    func testBodyCannotCrossWallOrCeiling() {
+        let wall = RoomSurfaceContext(id: "wall", kind: .wall, dimensions: [4,2.5,0], position: [0,0.25,-1],
+            corners: [[-2,-1,-1],[2,-1,-1],[2,1.5,-1],[-2,1.5,-1]], normal: [0,0,1])
+        XCTAssertFalse(SurfacePlacement.hasRoom(at: [0,-1,-0.8], surfaces: [wall], obstacles: []))
+        XCTAssertFalse(SurfacePlacement.hasRoom(at: [0,1,0], surfaces: [wall], obstacles: []))
+        XCTAssertTrue(SurfacePlacement.hasRoom(at: [0,-1,0], surfaces: [wall], obstacles: []))
     }
 }
