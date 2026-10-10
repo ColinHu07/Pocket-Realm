@@ -42,8 +42,8 @@ enum SurfacePlacement {
         }
         // A bounding-box top can be a chair back, headboard, or upper cabinet.
         // Search the observed side for clear floor, including below mounted storage.
-        for extra: Float in [0, 0.20, 0.40] {
-            for angle: Float in [0, .pi / 6, -.pi / 6] {
+        for extra: Float in [0, 0.10, 0.20, 0.30, 0.40, 0.60] {
+            for angle: Float in [0, .pi / 12, -.pi / 12, .pi / 6, -.pi / 6, .pi / 4, -.pi / 4] {
                 let d = simd_act(simd_quatf(angle: angle, axis: [0, 1, 0]), direction)
                 let tx = half.x / max(abs(d.x), 0.0001), tz = half.z / max(abs(d.z), 0.0001)
                 var local = d * min(tx, tz)

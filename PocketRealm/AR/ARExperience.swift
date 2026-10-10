@@ -304,7 +304,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                     // Retain the previously observed side of this furniture, even
                     // when the scan finished facing the opposite side of the room.
                     let facing = SIMD3(previous.columns.2.x, previous.columns.2.y, previous.columns.2.z)
-                    let placementObserver = position(previous) + facing * 2
+                    var placementObserver = position(previous) + facing * 2
+                    placementObserver.y = observer.y
                     guard let object = room.objects.first(where: { $0.identifier.uuidString == candidate.id }),
                           let transform = placement(for: object, in: room, observer: placementObserver, context: context) else { continue }
                     transforms[candidate.id] = transform

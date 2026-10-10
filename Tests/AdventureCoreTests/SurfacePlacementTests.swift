@@ -93,6 +93,16 @@ final class SurfacePlacementTests: XCTestCase {
         XCTAssertFalse(SurfacePlacement.hasRoom(at: [0,-0.2,0], surfaces: [floor()], obstacles: [shelf]))
     }
 
+    func testFloorSearchFindsDiagonalClearanceInFurnishedRoom() throws {
+        let obstacle = DecorationVolume(inverse: simd_inverse(object(center: [0,-0.75,1.1])), half: [0.12,0.25,0.15])
+        let result = try XCTUnwrap(SurfacePlacement.transform(category: "chair", dimensions: [1,0.8,1],
+            object: object(center: [0,-0.6,0]), observer: [0,0.6,2], surfaces: [floor()], obstacles: [obstacle]))
+        XCTAssertEqual(result.columns.3.y, -1, accuracy: 0.001)
+        XCTAssertGreaterThan(abs(result.columns.3.x), 0.48)
+        XCTAssertTrue(SurfacePlacement.hasRoom(at: SIMD3(result.columns.3.x, result.columns.3.y, result.columns.3.z),
+            surfaces: [floor()], obstacles: [obstacle]))
+    }
+
     func testRoundTableStaysAtCentreAndWidestFriendFits() throws {
         let table = object(center: [0,-0.6,0], yaw: .pi / 4)
         let result = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [0.9,0.8,0.82],
