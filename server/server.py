@@ -8,10 +8,17 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import drawings
+
 MAX_BODY = 3_000_000
 # The app gives up after 75 s, so every retry must finish inside this budget.
 PLAN_DEADLINE = 60
-RETRYABLE = {429, 500, 503}
+# 429 is excluded: free-tier limits are per minute, so a quick retry only burns more quota.
+RETRYABLE = {500, 503}
+# When a fallback model is configured, an overloaded model often hangs instead of failing,
+# so give it this long before moving on. Each model has its own quota, so 429 falls back too.
+ATTEMPT_TIMEOUT = 25
+FALLBACK_CODES = {429, 500, 503}
 FRIENDS = {
     "Mosskip": "a cheerful mint-green sprout courier carrying a seed satchel; curious and easily lost",
     "Glimlo": "a bashful peach lantern moth with petal wings; loves helping friends feel brave",
@@ -210,6 +217,12 @@ def validate_understanding(room, candidates, context, friend_id):
             "keepsakeObjectID": keepsake, "jungle": clean}
 
 
+def plan_models():
+    primary = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
+    fallbacks = [m.strip() for m in os.environ.get("GEMINI_FALLBACK_MODELS", "").split(",") if m.strip()]
+    return [primary] + [m for m in fallbacks if m != primary]
+
+
 def make_request(candidates, photos, friend="Mosskip", context=None):
     if friend not in FRIENDS:
         raise ValueError("Choose an available Pocket Realm friend.")
@@ -272,7 +285,7 @@ def make_request(candidates, photos, friend="Mosskip", context=None):
                 "yawRadians": photo["yaw"], "cameraPosition": photo["position"], "cameraForward": photo["forward"]})})
         input_parts.append({"type": "image", "data": photo["jpeg"], "mime_type": "image/jpeg"})
     return {
-        "model": os.environ.get("GEMINI_MODEL", "gemini-3.6-flash"),
+        "model": plan_models()[0],
         "input": input_parts,
         "response_format": {"type": "text", "mime_type": "application/json", "schema": schema},
         "generation_config": {"max_output_tokens": 4096 if context is not None else 1500},
@@ -314,25 +327,41 @@ def generate_plan(body):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("Set GEMINI_API_KEY on the adventure server, then retry.")
-    payload = json.dumps(make_request(candidates, photos, friend, context)).encode()
+    request_body = make_request(candidates, photos, friend, context)
+    models = plan_models()
+    # One model: retry it on brief overloads. Several: try each once, in order.
+    attempts = models if len(models) > 1 else models * 3
     deadline = time.monotonic() + PLAN_DEADLINE
-    for attempt in range(3):
+    for index, model in enumerate(attempts):
+        last = index == len(attempts) - 1
+        remaining = deadline - time.monotonic()
+        timeout = remaining if last or len(models) == 1 else min(ATTEMPT_TIMEOUT, remaining - 5)
         request = Request(
             "https://generativelanguage.googleapis.com/v1beta/interactions",
-            data=payload,
+            data=json.dumps({**request_body, "model": model}).encode(),
             headers={"Content-Type": "application/json", "x-goog-api-key": key},
             method="POST",
         )
         try:
-            with urlopen(request, timeout=max(5, deadline - time.monotonic())) as response:
+            with urlopen(request, timeout=max(5, timeout)) as response:
                 return parse_response(json.load(response), candidates, context)
         except HTTPError as error:
+            if len(models) > 1:
+                if error.code not in FALLBACK_CODES or last:
+                    raise
+                print(f"  {model} HTTP {error.code}; trying {attempts[index + 1]}", flush=True)
+                continue
             # Gemini's "high demand" 503s are frequent and brief; retry while time allows.
-            backoff = 2 * (attempt + 1)
-            if error.code not in RETRYABLE or attempt == 2 or deadline - time.monotonic() < backoff + 15:
+            backoff = 2 * (index + 1)
+            if error.code not in RETRYABLE or last or deadline - time.monotonic() < backoff + 15:
                 raise
             print(f"  Gemini HTTP {error.code}; retrying in {backoff}s", flush=True)
             time.sleep(backoff)
+        except (TimeoutError, URLError) as error:
+            timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
+            if not timed_out or last or len(models) == 1:
+                raise
+            print(f"  {model} timed out after {timeout:.0f}s; trying {attempts[index + 1]}", flush=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -352,10 +381,38 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
-        self.reply(200, {"status": "ready", "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY")),
-                         "planningVersion": 2, "model": os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")}) if self.path == "/health" else self.reply(404, {"error": "Not found"})
+        if self.path == "/health":
+            self.reply(200, {"status": "ready", "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY")),
+                             "planningVersion": 2, "drawings": True,
+                             "model": plan_models()[0], "fallbackModels": plan_models()[1:]})
+            return
+        parts = self.path.strip("/").split("/")
+        try:
+            if len(parts) == 2 and parts[0] == "drawings":
+                self.reply(200, drawings.public_status(parts[1]))
+            elif len(parts) == 3 and parts[0] == "drawings" and parts[2] == "model.usdz":
+                self.send_file(drawings.model_file(parts[1]), "model/vnd.usdz+zip")
+            else:
+                self.reply(404, {"error": "Not found"})
+        except KeyError:
+            self.reply(404, {"error": "That drawing isn't available."})
+
+    def send_file(self, path, content_type):
+        with open(path, "rb") as handle:
+            data = handle.read()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_POST(self):
+        if self.path == "/drawings":
+            self.receive_drawing()
+            return
         if self.path != "/plan":
             self.reply(404, {"error": "Not found"})
             return
@@ -385,6 +442,23 @@ class Handler(BaseHTTPRequestHandler):
             self.fail(504, "Gemini took too long to plan this room. Your scan is saved; try again.")
         except (URLError, OSError):
             self.fail(502, "Couldn't reach Gemini. Check the server connection and retry.")
+
+    def receive_drawing(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= MAX_BODY:
+                self.reply(413, {"error": "The drawing photo is too large or empty."})
+                return
+            self.connection.settimeout(15)
+            job = drawings.submit(json.loads(self.rfile.read(length)))
+            print(f"Drawing received from {self.client_address[0]} ({length // 1024} KB); queued {job['id'][:8]}", flush=True)
+            self.reply(202, job)
+        except (ValueError, UnicodeDecodeError) as error:
+            self.fail(400, str(error))
+        except RuntimeError as error:
+            self.fail(503, str(error))
+        except (TimeoutError, OSError):
+            self.fail(400, "The drawing upload didn't finish. Try again.")
 
     def fail(self, status, message):
         print(f"  Failed ({status}): {message}", flush=True)

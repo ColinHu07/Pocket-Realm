@@ -172,6 +172,35 @@ class RoomPlanningTests(unittest.TestCase):
         self.assertEqual(provider.call_count, 1)
 
 
+class FallbackTests(unittest.TestCase):
+    def setUp(self):
+        fixture = copy.deepcopy(ROOM_FIXTURE)
+        self.scan, self.plan = fixture["scan"], fixture["plan"]
+
+    def ok(self):
+        return io.BytesIO(json.dumps(response(self.plan)).encode())
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "big-flash", "GEMINI_FALLBACK_MODELS": "lite, big-flash"})
+    def test_overloaded_or_hanging_model_falls_back_to_the_next(self):
+        busy = HTTPError("https://example.invalid", 503, "Unavailable", {}, io.BytesIO(b"{}"))
+        for failure in (busy, TimeoutError("read timed out"), HTTPError("https://example.invalid", 429, "Quota", {}, io.BytesIO(b"{}"))):
+            with self.subTest(failure=type(failure).__name__), patch("server.urlopen", side_effect=[failure, self.ok()]) as provider:
+                self.assertEqual(generate_plan(copy.deepcopy(self.scan)), self.plan)
+                models = [json.loads(call.args[0].data)["model"] for call in provider.call_args_list]
+                self.assertEqual(models, ["big-flash", "lite"])
+                self.assertLessEqual(provider.call_args_list[0].kwargs["timeout"], 25)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "big-flash", "GEMINI_FALLBACK_MODELS": "lite"})
+    def test_bad_key_does_not_fall_back_and_last_failure_surfaces(self):
+        forbidden = HTTPError("https://example.invalid", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+        with patch("server.urlopen", side_effect=forbidden) as provider, self.assertRaises(HTTPError):
+            generate_plan(copy.deepcopy(self.scan))
+        self.assertEqual(provider.call_count, 1)
+        with patch("server.urlopen", side_effect=[TimeoutError(), TimeoutError()]) as provider, self.assertRaises(TimeoutError):
+            generate_plan(copy.deepcopy(self.scan))
+        self.assertEqual(provider.call_count, 2)
+
+
 class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

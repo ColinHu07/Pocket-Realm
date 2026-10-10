@@ -93,6 +93,34 @@ Room-planning validation covers the shared Swift/server JSON contract, mandatory
 - Camera frames are sampled into at most six JPEGs with a maximum dimension of 640 pixels. They are held in memory and discarded after successful planning or rescan. Room data and images go to your configured server and Gemini. The proxy does not log or save those payloads and requests `store: false` from the provider; this is not a claim about provider-wide retention policies.
 - The API key is only read by the server from `GEMINI_API_KEY` (exported, or from the git-ignored `server/.env`).
 
+## Sketch quests: drawings come to life
+
+Paper drawings become things in the game. Codex looks at each drawing, sculpts it in Blender, and decides how it behaves.
+
+- **Sidekick.** On the welcome screen, **Draw a sidekick**: anything at all. When it's ready it stands on your room's floor, trots after you, and faces you when idle. Tap it, or **Talk**, to hear its lines.
+- **Traps.** After you greet your friend, their item is stuck in one of six random predicaments: moon-ice, a grumpy storm cloud, thornvines, a snoring boulder, a wobbly bubble, or a shadow puddle. Each has an open-ended drawing hint ("draw something that could thaw it, crack it, or politely ask the ice to let go").
+- **Your solution.** **Draw a solution** overlays a page-shaped guide on the live AR view, so tracking keeps running, and captures the frame. While Codex works, the card cycles through workshop updates ("The gnomes are arguing about the color. Your drawing wins."). The result is one of three kinds:
+  - a **tool**, which appears in your hand;
+  - a **character**, which pops in beside the trap, faces you, and talks;
+  - an **object**, which drops in nearby.
+
+  Tap its action button (e.g. **Knock! (2 to go)**) or the trap itself until the trap bursts. Then collect the item and return it as before.
+- **Inventory.** Every finished drawing is saved on the phone. Reuse one on a later trap (no new Codex job) or make it your sidekick.
+
+The app uploads a cropped JPEG (≤1024 px) to `POST /drawings` with `purpose` (`sidekick` or `challenge`), the trap description, and the friend. It polls `GET /drawings/<id>` and downloads `GET /drawings/<id>/model.usdz`. A ready status includes the **card** Codex chose: `kind`, `verb`, `uses` (1–5), `title`, `arrival`, `success`, `lines`, and `voice`. The server sanitizes all of it before the app speaks it.
+
+On the server, `server/drawing_worker.py` takes one job at a time. It copies `server/drawing_kit/` into a fresh job folder: `AGENTS.md` has Codex's instructions, and `kit.py` is the Blender helper. It also writes the game situation to `QUEST.md`. Then it runs `codex exec --sandbox workspace-write` with the drawing attached. Codex writes `build.py`, runs Blender headless, checks the Cycles preview, and calls `kit.finish(...)`. That exports `model.usdz` with the friends' USD settings and records the card. Codex has no network access in its sandbox and can only write inside the job folder. Text in a drawing is treated as artwork. Jobs time out after 7 minutes and are deleted after 24 hours. Test drawings took 31–45 seconds.
+
+The worker needs a logged-in Codex CLI and Blender 5.2 at `/opt/blender/blender` on the same machine; the web server only needs a shared `JOBS_DIR`. On the VPS, the worker runs as the `pocketrealm-drawings` systemd service, and the web container mounts the jobs folder at `/jobs`.
+
+## Dev shortcuts
+
+Debug builds define `DEBUG`. After every successful scan and plan, the app saves the ARKit world map, Gemini's plan, and the room geometry. **Dev · reuse room** (welcome screen or the ⋯ menu) relocalizes in that room and skips both the scan and the Gemini call. **Dev · skip this trap** clears the current trap. Neither appears in Release builds.
+
+## Gemini model fallback
+
+`GEMINI_MODEL` is tried first. If `GEMINI_FALLBACK_MODELS` (comma-separated) is set, an overloaded (503), over-quota (429), or slow model (over 25 s) hands off to the next model in the list, within the 60-second budget. Busy Flash models often hang rather than fail, so the time limit matters as much as the error codes. Bad keys and invalid requests don't fall back. `/health` reports both settings.
+
 ## Blender sources and exports
 
 - `Art/Creatures/PocketRealm-Friends.blend`: editable scene with all six named characters, materials, camera, and studio lighting. After the reaction-preview step below, frames 1–168 contain an animated demonstration with labeled cues. Each character has a separate parent; the lineup positions are for presentation only.

@@ -9,3 +9,4 @@ xcuserdata/
 !.env.example
 __pycache__/
 *.pyc
+server/jobs/
