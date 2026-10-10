@@ -27,6 +27,33 @@ enum CreatureFactory {
         }
     }
 
+    static func questReward(_ friend: RealmFriend) -> Entity {
+        let root = Entity()
+        if friend == .nibbi {
+            let cookie = ModelEntity(mesh: .generateSphere(radius: 0.09), materials: [SimpleMaterial(color: .init(red: 0.84, green: 0.58, blue: 0.29, alpha: 1), roughness: 0.8, isMetallic: false)])
+            cookie.scale = [1, 1, 0.22]; root.addChild(cookie)
+            for index in 0..<7 {
+                let angle = Float(index) * 2 * .pi / 7
+                let chip = ModelEntity(mesh: .generateSphere(radius: 0.009), materials: [SimpleMaterial(color: .brown, roughness: 1, isMetallic: false)])
+                chip.position = [cos(angle) * 0.055, sin(angle) * 0.055, 0.018]; root.addChild(chip)
+            }
+        } else if friend == .cindlet {
+            let toast = ModelEntity(mesh: .generateBox(size: [0.15, 0.17, 0.03]), materials: [SimpleMaterial(color: .init(red: 0.86, green: 0.57, blue: 0.25, alpha: 1), roughness: 1, isMetallic: false)])
+            root.addChild(toast)
+            for x: Float in [-0.018, 0.018] {
+                let heart = ModelEntity(mesh: .generateSphere(radius: 0.025), materials: [SimpleMaterial(color: .systemPink, roughness: 0.7, isMetallic: false)])
+                heart.scale = [0.8, 1.1, 0.25]; heart.position = [x, 0.015, 0.022]
+                heart.orientation = simd_quatf(angle: x < 0 ? 0.5 : -0.5, axis: [0, 0, 1]); root.addChild(heart)
+            }
+        } else {
+            for index in 0..<3 {
+                let bubble = ModelEntity(mesh: .generateSphere(radius: 0.025 + Float(index) * 0.009), materials: [SimpleMaterial(color: color(friend), roughness: 0.1, isMetallic: true)])
+                bubble.position = [Float(index - 1) * 0.075, Float(index % 2) * 0.07, 0]; root.addChild(bubble)
+            }
+        }
+        return root
+    }
+
     static func keepsake(_ friend: RealmFriend) -> Entity {
         let root = Entity()
         let material = SimpleMaterial(color: color(friend), roughness: 0.28, isMetallic: false)

@@ -3,7 +3,10 @@ import Foundation
 /// A deterministic pose sampler shared by AR, the preview, and animation validation.
 /// Every pose is absolute, so repeated interactions cannot accumulate transform drift.
 enum FriendReaction: String, CaseIterable {
-    case appear, greeting, pet, celebrate, chat, play
+    case appear, greeting, pet, celebrate, chat, play, puzzled, bubble, wiggle, plop
+    static func bloopMove(_ id: String) -> Self {
+        switch id { case "bubble": return .bubble; case "wiggle": return .wiggle; default: return .plop }
+    }
     var duration: Float {
         switch self {
         case .appear: return 1.1
@@ -12,6 +15,8 @@ enum FriendReaction: String, CaseIterable {
         case .celebrate: return 3.4
         case .chat: return 1.7
         case .play: return 3.2
+        case .puzzled: return 1.6
+        case .bubble, .wiggle, .plop: return 0.8
         }
     }
 }
@@ -138,6 +143,21 @@ struct FriendMotion {
             p.rotation.x += sin(u * .pi * 4) * envelope * 0.055
             p.rotation.z += envelope * 0.07
             p.mouth += pow(sin(u * .pi * 10), 2) * envelope * 0.3
+        case .puzzled:
+            p.rotation.z += sin(u * .pi * 3) * envelope * 0.16
+            p.appendage -= envelope * 0.25
+            p.mouth += envelope * 0.3
+        case .bubble:
+            p.scale *= 1 + envelope * 0.06
+            p.position.y += envelope * 0.055
+            p.mouth += envelope * 0.5
+        case .wiggle:
+            p.rotation.z += sin(u * .pi * 6) * envelope * 0.22
+            p.tail += sin(u * .pi * 8) * envelope * 0.5
+        case .plop:
+            p.scale.y -= envelope * 0.17
+            p.scale.x += envelope * 0.08
+            p.position.y += sin(u * .pi) * 0.04
         }
         return p
     }

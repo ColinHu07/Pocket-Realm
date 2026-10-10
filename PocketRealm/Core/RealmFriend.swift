@@ -66,8 +66,8 @@ enum RealmFriend: String, CaseIterable, Identifiable, Codable {
         case .bloopi: return Story(
             role: "Puddle explorer",
             personality: "A blue tide pup with rosy gills who maps puddles and names every ripple.",
-            title: "One perfect plop", item: "ripple stone",
-            request: "Bloop! I lost my favorite ripple stone. It's perfectly ploppy. Could you bring it back?",
+            title: "Speak fluent Bloop", item: "ripple stone",
+            request: "Bloop! Find my ripple stone, then come back for a puddle concert. I'll teach you the bubble-wiggle-plop song!",
             thanks: "PLOP! Perfect! The next puddle I discover is officially named after you.",
             reward: "Puddle Pal", symbol: "drop.fill",
             chat: "If a puddle is tiny, does that make it a pocket ocean? I'm investigating.",
@@ -76,8 +76,8 @@ enum RealmFriend: String, CaseIterable, Identifiable, Codable {
         case .nibbi: return Story(
             role: "Pocket baker",
             personality: "A strawberry bunny baker with floppy ears, a cookie pocket, and wildly ambitious snack plans.",
-            title: "A sprinkle of courage", item: "sugar star",
-            request: "My friendship cookies need one last sugar star! Would you find it? You get the first bite. And the second.",
+            title: "The impossible snack", item: "sugar star",
+            request: "Find my sugar star, then help me invent a cookie! We'll mix three ingredients and taste-test them together.",
             thanks: "Ta-daaa! A cookie for my favorite helper. I made it extra big because you are extra nice.",
             reward: "Cookie Comrade", symbol: "star.fill",
             chat: "The recipe said a pinch of joy. I added seven. I think we're going to need a bigger bowl.",
@@ -86,8 +86,8 @@ enum RealmFriend: String, CaseIterable, Identifiable, Codable {
         case .cindlet: return Story(
             role: "Wish warmer",
             personality: "A honey-colored ember fox whose fluffy flame tail keeps small wishes warm.",
-            title: "Keep a wish warm", item: "wish cinder",
-            request: "A little wish escaped my tail! Could you find its wish cinder? I promised to keep it cozy.",
+            title: "Too hot for toast", item: "wish cinder",
+            request: "My tiny oven needs its wish cinder! Bring it back, then help me choose just enough ember treats for perfectly cozy toast.",
             thanks: "Safe and warm! I made a wish too. It was to find a friend like you. It worked!",
             reward: "Cozy Guardian", symbol: "flame.fill",
             chat: "My tail is warm like toast. My ideas are also mostly about toast.",

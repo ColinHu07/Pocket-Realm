@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "AdventureCore",
+    platforms: [.macOS(.v13), .iOS(.v17)],
     products: [.library(name: "AdventureCore", targets: ["AdventureCore"])],
     targets: [
         .target(name: "AdventureCore", path: "PocketRealm/Core"),

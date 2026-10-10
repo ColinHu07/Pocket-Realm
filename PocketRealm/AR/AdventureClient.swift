@@ -13,6 +13,7 @@ struct AdventureClient {
         let photos: [ScanPhoto]
         let friend: RealmFriend
         let planningVersion = 3
+        let questVersion = 1
         let roomContext: RoomScanContext
     }
     static func endpoint(_ address: String) throws -> URL {
@@ -36,6 +37,7 @@ struct AdventureClient {
         }
         let plan = try JSONDecoder().decode(EncounterPlan.self, from: data)
         try plan.validateRoom(against: candidates, surfaces: context.surfaces)
+        try plan.challenge?.validate(for: friend)
         return plan
     }
 }

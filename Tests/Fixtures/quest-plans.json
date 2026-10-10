@@ -1,0 +1,8 @@
+[
+  {"friend":"Nibbi","challenge":{"blueprintID":"nibbi-cocoa","introduction":"Help me invent a cookie for our tiny picnic!"}},
+  {"friend":"Nibbi","challenge":{"blueprintID":"nibbi-mint","introduction":"I dreamed of a cookie that tastes like a moonlit garden."}},
+  {"friend":"Cindlet","challenge":{"blueprintID":"cindlet-toast","introduction":"Let's turn this wish cinder into a cozy toast party!"}},
+  {"friend":"Cindlet","challenge":{"blueprintID":"cindlet-stars","introduction":"My little oven wants to bake a breakfast for the stars."}},
+  {"friend":"Bloopi","challenge":{"blueprintID":"bloopi-ripple","introduction":"Every ripple has a song. Let's learn this one's together!"}},
+  {"friend":"Bloopi","challenge":{"blueprintID":"bloopi-dance","introduction":"Our puddle concert needs a very silly dance partner."}}
+]

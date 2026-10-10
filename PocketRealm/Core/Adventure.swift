@@ -1,10 +1,19 @@
 import Foundation
 
 struct Adventure {
-    enum Phase: Equatable { case scanning, planning, ready, exploring, revealed, questing, returning, complete }
+    enum Phase: Equatable { case scanning, planning, restoring, ready, exploring, revealed, questing, returning, playing, complete }
     private(set) var phase: Phase = .scanning
+    private(set) var challenge: QuestGame?
     mutating func finishScan() { if phase == .scanning { phase = .planning } }
-    mutating func acceptPlan() { if phase == .planning { phase = .ready } }
+    mutating func beginRestoring() { if phase == .scanning { phase = .restoring } }
+    @discardableResult mutating func restorePlan(aligned: Bool, challenge: QuestGame? = nil) -> Bool {
+        guard phase == .restoring, aligned else { return false }
+        self.challenge = challenge; phase = .ready
+        return true
+    }
+    mutating func acceptPlan(challenge: QuestGame? = nil) {
+        if phase == .planning { self.challenge = challenge; phase = .ready }
+    }
     mutating func beginExploring() { if phase == .ready { phase = .exploring } }
     @discardableResult mutating func reveal(trackingReady: Bool, proximitySatisfied: Bool) -> Bool {
         guard phase == .exploring, trackingReady, proximitySatisfied else { return false }
@@ -22,9 +31,25 @@ struct Adventure {
         return true
     }
     @discardableResult mutating func finishQuest(trackingReady: Bool, inReach: Bool) -> Bool {
-        guard phase == .returning, trackingReady, inReach else { return false }
+        guard trackingReady, inReach else { return false }
+        if challenge != nil {
+            guard phase == .playing, challenge?.solved == true else { return false }
+        } else { guard phase == .returning else { return false } }
         phase = .complete
         return true
+    }
+    @discardableResult mutating func beginChallenge(trackingReady: Bool, inReach: Bool) -> Bool {
+        guard phase == .returning, challenge != nil, trackingReady, inReach else { return false }
+        phase = .playing
+        return true
+    }
+    @discardableResult mutating func playChallenge(_ action: QuestAction, trackingReady: Bool, inReach: Bool) -> QuestOutcome {
+        guard phase == .playing, trackingReady, inReach else { return .ignored }
+        return challenge?.perform(action) ?? .ignored
+    }
+    mutating func advanceChallenge(delta: Double, available: Bool) {
+        guard phase == .playing, challenge?.memoryStage == .showing else { return }
+        challenge?.advancePlayback(delta: delta, available: available)
     }
 }
 
@@ -68,6 +93,7 @@ struct EncounterPlan: Codable {
     let hint: String
     let greeting: String
     var room: RoomUnderstanding? = nil
+    var challenge: QuestPlan? = nil
     func validate(against candidates: [RoomCandidate]) throws {
         guard candidates.contains(where: { $0.id == objectID }),
               !hint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
