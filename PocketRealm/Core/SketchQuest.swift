@@ -65,12 +65,12 @@ struct Challenge: Equatable {
 
     var title: String {
         switch trap {
-        case .moonIce: return "Frozen in moon-ice"
-        case .grumbleCloud: return "A very grumpy cloud"
-        case .thornKnot: return "Tangled in thornvines"
-        case .snoringBoulder: return "A boulder took a nap"
-        case .wobbleBubble: return "Bubbled away"
-        case .shadowPuddle: return "Sunk in a shadow puddle"
+        case .moonIce: return "Break the ice"
+        case .grumbleCloud: return "Clear the storm cloud"
+        case .thornKnot: return "Untangle the vines"
+        case .snoringBoulder: return "Move the boulder"
+        case .wobbleBubble: return "Bring down the bubble"
+        case .shadowPuddle: return "Clear the shadow puddle"
         }
     }
 
@@ -78,46 +78,46 @@ struct Challenge: Equatable {
     var prompt: String {
         switch trap {
         case .moonIce:
-            return "The \(item) is frozen inside a block of glittering moon-ice by the \(place). Draw something that could thaw it, crack it, or politely ask the ice to let go."
+            return "The \(item) is trapped in sparkling ice near the \(place). Draw something warm to melt the ice, or a tool to crack it."
         case .grumbleCloud:
-            return "A grumpy little storm cloud is sulking on top of the \(item) and won't budge. Draw someone who could cheer it up, or something that could blow it far away."
+            return "A storm cloud is blocking the \(item) near the \(place). Draw something to blow the cloud away, like a fan or a windy creature."
         case .thornKnot:
-            return "Sleepy thornvines have curled around the \(item) by the \(place). Draw something that could snip them, untangle them, or tickle them awake."
+            return "Vines are wrapped around the \(item) near the \(place). Draw a tool or a helper that could cut or untangle the vines."
         case .snoringBoulder:
-            return "A boulder fell asleep right on top of the \(item), and it's snoring. Draw something loud, strong, or very persuasive enough to move it."
+            return "A boulder is covering the \(item) near the \(place). Draw a strong helper or a tool that could lift or push the boulder aside."
         case .wobbleBubble:
-            return "The \(item) floated up inside a giant wobbly bubble. Draw something that could pop it, catch it, or fly up to fetch it."
+            return "The \(item) is floating in a bubble near the \(place). Draw something to pop the bubble, or a flying helper to bring it down."
         case .shadowPuddle:
-            return "The \(item) sank into a swirly puddle of shadow by the \(place). Draw something that makes light, or something that could fish it out."
+            return "The \(item) is hidden in a magical shadow puddle near the \(place). Draw a light to clear the shadow, or a tool to lift the item out."
         }
     }
 
     /// What the friend says when they explain the problem.
     var plea: String {
         switch trap {
-        case .moonIce: return "My \(item) got frozen solid in moon-ice! Can you draw something to get it out?"
-        case .grumbleCloud: return "A grumbly cloud is sitting on my \(item) and it won't move! Maybe you could draw something to help?"
-        case .thornKnot: return "Thornvines grabbed my \(item)! Could you draw something to free it?"
-        case .snoringBoulder: return "A big sleepy boulder is snoozing on my \(item)! Can you draw something to move it?"
-        case .wobbleBubble: return "My \(item) floated off in a bubble! Can you draw something to bring it down?"
-        case .shadowPuddle: return "My \(item) sank into a shadow puddle! Could you draw something to get it back?"
+        case .moonIce: return "My \(item) is trapped in ice near the \(place)! Can you draw something to melt or break the ice?"
+        case .grumbleCloud: return "A storm cloud is blocking my \(item) near the \(place)! Can you draw something to blow the cloud away?"
+        case .thornKnot: return "Vines are tangled around my \(item) near the \(place)! Can you draw something to untangle them?"
+        case .snoringBoulder: return "My \(item) is under a boulder near the \(place)! Can you draw something to move the boulder?"
+        case .wobbleBubble: return "My \(item) is floating in a bubble near the \(place)! Can you draw something to bring it down?"
+        case .shadowPuddle: return "My \(item) is hidden in a magical shadow puddle near the \(place)! Can you draw a light or something to lift it out?"
         }
     }
 
     var cleared: String {
         switch trap {
-        case .moonIce: return "The moon-ice cracks into a hundred sparkles!"
-        case .grumbleCloud: return "The cloud giggles, sprinkles a tiny rainbow, and drifts away!"
-        case .thornKnot: return "The thornvines yawn, stretch, and let go!"
-        case .snoringBoulder: return "The boulder wakes up, says sorry, and rolls aside!"
-        case .wobbleBubble: return "Pop! The bubble bursts into glitter!"
-        case .shadowPuddle: return "Light floods the puddle and it shrinks away to nothing!"
+        case .moonIce: return "The ice is gone! Pick up the \(item)."
+        case .grumbleCloud: return "The cloud has cleared! Pick up the \(item)."
+        case .thornKnot: return "The vines are cleared away! Pick up the \(item)."
+        case .snoringBoulder: return "The boulder is out of the way! Pick up the \(item)."
+        case .wobbleBubble: return "Pop! The \(item) is free. Pick it up!"
+        case .shadowPuddle: return "The shadow is gone! Pick up the \(item)."
         }
     }
 
     /// The full context Codex sees alongside the drawing.
     var codexContext: String {
-        "Challenge: \(title). \(prompt) The player's drawing is their solution. Decide how it helps."
+        "Challenge: \(title). \(prompt) The player's drawing is their solution. Explain simply how it clears this obstacle and frees the item. Keep the explanation playful but concrete; do not invent another obstacle or extra tasks."
     }
 }
 

@@ -251,7 +251,7 @@ struct ContentView: View {
                 }
                 Button { experience.openDrawing(.challenge) } label: { Label("Draw something else", systemImage: "pencil") }
             }.font(.system(size: 13, weight: .semibold)).foregroundStyle(lime)
-            footnote("Tap the trap itself, or the button, when you're close.")
+            footnote("Move close to the obstacle near the \(experience.questCategory), then tap it or use the button.")
         } else if experience.challengeDrawing.isWorking {
             HStack(alignment: .top, spacing: 12) {
                 if let photo = experience.challengePhoto { thumbnail(photo, placeholder: "pencil", size: 44) }
@@ -263,7 +263,7 @@ struct ContentView: View {
                         .animation(.easeInOut, value: experience.whimsy)
                 }
             }
-            footnote("Walk over to the \(experience.questCategory) while you wait. It pops into the room when it's ready.")
+            footnote("Head toward the \(experience.questCategory) while your drawing is being made.")
         } else {
             if case .failed(let reason) = experience.challengeDrawing {
                 Text(reason).font(.subheadline).foregroundStyle(.orange)
@@ -435,7 +435,7 @@ struct ContentView: View {
         case .ready: return "Your room is ready. Open to take a look at the plan."
         case .exploring: return experience.proximity.armed ? detail : "Take a few steps back, then follow the clue. Tap for details."
         case .revealed: return experience.inReach ? "A new friend is ready to say hello." : "Move a little closer to say hello."
-        case .challenge: return "Draw a helper or use a saved creation. Tap to open your drawing quest."
+        case .challenge: return "Look near the \(experience.questCategory) for the blocked \(experience.friend.itemName). Tap for drawing options."
         case .questing: return "Look for a little glow by the \(experience.questCategory)."
         case .returning: return "Keepsake found! Your friend is waiting where you met."
         case .playing: return "Tap or swipe up to keep playing. Your progress stays."
