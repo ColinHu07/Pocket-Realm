@@ -3,6 +3,64 @@ import XCTest
 @testable import AdventureCore
 
 final class QuestChallengeTests: XCTestCase {
+    func testDrawingTrapPreservesEveryCharacterPuzzleAndCompletionGate() {
+        for blueprint in QuestBlueprint.allCases {
+            var adventure = Adventure()
+            adventure.finishScan()
+            adventure.acceptPlan(challenge: QuestGame(blueprint: blueprint))
+            adventure.beginExploring()
+            adventure.reveal(trackingReady: true, proximitySatisfied: true)
+            XCTAssertTrue(adventure.talk(trackingReady: true, inReach: true, withDrawingChallenge: true))
+            XCTAssertEqual(adventure.phase, .challenge)
+            XCTAssertFalse(adventure.collect(trackingReady: true, inReach: true))
+            XCTAssertFalse(adventure.beginChallenge(trackingReady: true, inReach: true))
+            XCTAssertTrue(adventure.clearChallenge())
+            XCTAssertEqual(adventure.challenge?.blueprint, blueprint)
+            XCTAssertTrue(adventure.collect(trackingReady: true, inReach: true))
+            XCTAssertFalse(adventure.finishQuest(trackingReady: true, inReach: true))
+            XCTAssertTrue(adventure.beginChallenge(trackingReady: true, inReach: true))
+            // Clearing/skipping a drawing trap cannot skip the character's puzzle.
+            XCTAssertFalse(adventure.clearChallenge())
+            XCTAssertFalse(adventure.finishQuest(trackingReady: true, inReach: true))
+            if blueprint.kind == .memory {
+                for _ in 0..<3 {
+                    adventure.playChallenge(.replay, trackingReady: true, inReach: true)
+                    for _ in 0..<100 { adventure.advanceChallenge(delta: 0.1, available: true) }
+                    for id in adventure.challenge!.roundPattern {
+                        adventure.playChallenge(.select(id), trackingReady: true, inReach: true)
+                    }
+                }
+            } else {
+                for id in blueprint.solution {
+                    adventure.playChallenge(.select(id), trackingReady: true, inReach: true)
+                }
+                XCTAssertEqual(adventure.playChallenge(.submit, trackingReady: true, inReach: true), .won)
+            }
+            XCTAssertTrue(adventure.finishQuest(trackingReady: true, inReach: true), blueprint.rawValue)
+            XCTAssertFalse(adventure.finishQuest(trackingReady: true, inReach: true))
+        }
+    }
+
+    func testReplayAndRestorationKeepDrawingAndCharacterChallengesSeparate() {
+        var adventure = Adventure()
+        adventure.beginRestoring()
+        XCTAssertFalse(adventure.restorePlan(aligned: false, challenge: QuestGame(blueprint: .nibbiMint)))
+        XCTAssertTrue(adventure.restorePlan(aligned: true, challenge: QuestGame(blueprint: .nibbiMint)))
+        adventure.beginExploring()
+        adventure.reveal(trackingReady: true, proximitySatisfied: true)
+        adventure.talk(trackingReady: true, inReach: true, withDrawingChallenge: true)
+        XCTAssertTrue(adventure.replayRoom(challenge: QuestGame(blueprint: .cindletStars)))
+        XCTAssertFalse(adventure.clearChallenge())
+        XCTAssertEqual(adventure.phase, .ready)
+        XCTAssertEqual(adventure.challenge?.blueprint, .cindletStars)
+        adventure.beginExploring()
+        adventure.reveal(trackingReady: true, proximitySatisfied: true)
+        adventure.talk(trackingReady: true, inReach: true)
+        XCTAssertEqual(adventure.phase, .questing)
+        XCTAssertTrue(adventure.collect(trackingReady: true, inReach: true))
+        XCTAssertTrue(adventure.beginChallenge(trackingReady: true, inReach: true))
+    }
+
     private func finishPlayback(_ game: inout QuestGame) {
         for _ in 0..<100 { game.advancePlayback(delta: 0.1, available: true) }
         XCTAssertEqual(game.memoryStage, .recalling)

@@ -59,7 +59,12 @@ final class AdventureTests: XCTestCase {
         XCTAssertTrue(game.reveal(trackingReady: true, proximitySatisfied: true))
         XCTAssertFalse(game.collect(trackingReady: true, inReach: true))
         XCTAssertFalse(game.talk(trackingReady: false, inReach: true))
-        XCTAssertTrue(game.talk(trackingReady: true, inReach: true))
+        XCTAssertTrue(game.talk(trackingReady: true, inReach: true, withDrawingChallenge: true))
+        XCTAssertEqual(game.phase, .challenge)
+        // The item can't be picked up until the drawn helper clears the trap.
+        XCTAssertFalse(game.collect(trackingReady: true, inReach: true))
+        XCTAssertTrue(game.clearChallenge())
+        XCTAssertFalse(game.clearChallenge())
         XCTAssertEqual(game.phase, .questing)
         XCTAssertFalse(game.finishQuest(trackingReady: true, inReach: true))
         XCTAssertFalse(game.collect(trackingReady: false, inReach: true))

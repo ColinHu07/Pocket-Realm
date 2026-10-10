@@ -10,10 +10,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import drawings
+
 MAX_BODY = 3_000_000
 MAX_PROVIDER_ATTEMPTS = 3
 PROVIDER_BUDGET_SECONDS = 55
 DEFAULT_MODEL = "gemini-3.6-flash"
+ATTEMPT_TIMEOUT = 25
+FALLBACK_CODES = {429, 500, 503}
 FRIENDS = {
     "Mosskip": "a cheerful mint-green sprout courier carrying a seed satchel; curious and easily lost",
     "Glimlo": "a bashful peach lantern moth with petal wings; loves helping friends feel brave",
@@ -57,6 +61,18 @@ class RequestTrace:
         with TRACE_LOCK:
             LAST_REQUEST = dict(self.state)
         print("Pocket Realm request " + json.dumps(self.state), flush=True)
+
+
+def load_env(path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")):
+    # Fill unset variables from the git-ignored server/.env; real environment values win.
+    try:
+        with open(path) as env:
+            for line in env:
+                name, sep, value = line.strip().partition("=")
+                if sep and name and not name.startswith("#"):
+                    os.environ.setdefault(name.strip(), value.strip().strip("'\""))
+    except FileNotFoundError:
+        pass
 
 
 def validate_scan(body):
@@ -250,6 +266,12 @@ def validate_understanding(room, candidates, context, friend_id):
             "keepsakeObjectID": keepsake, "jungle": clean}
 
 
+def plan_models():
+    primary = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)
+    fallbacks = [m.strip() for m in os.environ.get("GEMINI_FALLBACK_MODELS", "").split(",") if m.strip()]
+    return list(dict.fromkeys([primary] + fallbacks))
+
+
 def make_request(candidates, photos, friend="Mosskip", context=None, quest_version=0):
     if friend not in FRIENDS:
         raise ValueError("Choose an available Pocket Realm friend.")
@@ -333,7 +355,7 @@ def make_request(candidates, photos, friend="Mosskip", context=None, quest_versi
                 "yawRadians": photo["yaw"], "cameraPosition": photo["position"], "cameraForward": photo["forward"]})})
         input_parts.append({"type": "image", "data": photo["jpeg"], "mime_type": "image/jpeg"})
     return {
-        "model": os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
+        "model": plan_models()[0],
         "input": input_parts,
         "response_format": {"type": "text", "mime_type": "application/json", "schema": schema},
         "generation_config": {"max_output_tokens": 4096 if context is not None else 1500},
@@ -381,23 +403,26 @@ def generate_plan(body, report=None):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise RuntimeError("Set GEMINI_API_KEY on the adventure server, then retry.")
-    request = Request(
-        "https://generativelanguage.googleapis.com/v1beta/interactions",
-        data=json.dumps(make_request(candidates, photos, friend, context, quest_version)).encode(),
-        headers={"Content-Type": "application/json", "x-goog-api-key": key},
-        method="POST",
-    )
-    # Keep retries inside the phone's 75-second request window. Retry only a
-    # provider overload response, never invalid credentials, quota, or bad plans.
+    request_body = make_request(candidates, photos, friend, context, quest_version)
+    models = plan_models()
+    attempts = models if len(models) > 1 else models * MAX_PROVIDER_ATTEMPTS
     deadline = time.monotonic() + PROVIDER_BUDGET_SECONDS
-    for attempt in range(1, MAX_PROVIDER_ATTEMPTS + 1):
+    for index, model in enumerate(attempts):
+        last = index == len(attempts) - 1
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("Gemini request budget exhausted")
+        timeout = min(ATTEMPT_TIMEOUT, remaining) if len(models) > 1 and not last else remaining
+        request = Request(
+            "https://generativelanguage.googleapis.com/v1beta/interactions",
+            data=json.dumps({**request_body, "model": model}).encode(),
+            headers={"Content-Type": "application/json", "x-goog-api-key": key},
+            method="POST",
+        )
         if report:
-            report("sending_to_gemini", attempt=attempt)
+            report("sending_to_gemini", attempt=index + 1)
         try:
-            with urlopen(request, timeout=remaining) as response:
+            with urlopen(request, timeout=timeout) as response:
                 if report:
                     report("gemini_responded", providerHTTPStatus=200)
                 plan = parse_response(json.load(response), candidates, context, friend, quest_version)
@@ -405,19 +430,32 @@ def generate_plan(body, report=None):
                     report("plan_ready")
                 return plan
         except HTTPError as error:
-            delay = float(2 ** (attempt - 1))
+            if len(models) > 1:
+                if error.code not in FALLBACK_CODES or last:
+                    raise
+                if report:
+                    report("falling_back", attempt=index + 1, providerHTTPStatus=error.code)
+                error.close()
+                continue
+            delay = float(2 ** index)
             try:
                 suggested = float(error.headers.get("Retry-After", "0"))
                 if math.isfinite(suggested):
                     delay = max(delay, suggested)
             except (ValueError, AttributeError):
                 pass
-            if error.code != 503 or attempt == MAX_PROVIDER_ATTEMPTS or deadline - time.monotonic() <= delay + 5:
+            if error.code not in {500, 503} or last or deadline - time.monotonic() <= delay + 5:
                 raise
             if report:
-                report("retrying_gemini", attempt=attempt, retryInSeconds=delay, providerHTTPStatus=503)
+                report("retrying_gemini", attempt=index + 1, retryInSeconds=delay, providerHTTPStatus=error.code)
             error.close()
             time.sleep(delay)
+        except (TimeoutError, URLError) as error:
+            timed_out = isinstance(error, TimeoutError) or isinstance(getattr(error, "reason", None), TimeoutError)
+            if not timed_out or last or len(models) == 1:
+                raise
+            if report:
+                report("falling_back", attempt=index + 1)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -438,13 +476,40 @@ class Handler(BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
-        with TRACE_LOCK:
-            receipt = dict(LAST_REQUEST) if LAST_REQUEST else None
-        self.reply(200, {"status": "ready", "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY")),
-                         "planningVersion": 3, "questVersion": 1, "model": os.environ.get("GEMINI_MODEL", DEFAULT_MODEL),
-                         "lastRequest": receipt}) if self.path == "/health" else self.reply(404, {"error": "Not found"})
+        if self.path == "/health":
+            with TRACE_LOCK:
+                receipt = dict(LAST_REQUEST) if LAST_REQUEST else None
+            self.reply(200, {"status": "ready", "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY")),
+                             "planningVersion": 3, "questVersion": 1, "drawings": True, "lastRequest": receipt,
+                             "model": plan_models()[0], "fallbackModels": plan_models()[1:]})
+            return
+        parts = self.path.strip("/").split("/")
+        try:
+            if len(parts) == 2 and parts[0] == "drawings":
+                self.reply(200, drawings.public_status(parts[1]))
+            elif len(parts) == 3 and parts[0] == "drawings" and parts[2] == "model.usdz":
+                self.send_file(drawings.model_file(parts[1]), "model/vnd.usdz+zip")
+            else:
+                self.reply(404, {"error": "Not found"})
+        except KeyError:
+            self.reply(404, {"error": "That drawing isn't available."})
+
+    def send_file(self, path, content_type):
+        with open(path, "rb") as handle:
+            data = handle.read()
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        try:
+            self.wfile.write(data)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_POST(self):
+        if self.path == "/drawings":
+            self.receive_drawing()
+            return
         if self.path != "/plan":
             self.reply(404, {"error": "Not found"})
             return
@@ -472,12 +537,37 @@ class Handler(BaseHTTPRequestHandler):
                            error.code, f"Gemini returned HTTP {error.code}. Check your server key, model access, and quota.")
             self.reply(502, {"error": message})
             error.close()
-        except (URLError, TimeoutError, OSError):
+        except TimeoutError:
             trace.update("connection_failed")
-            self.reply(502, {"error": "Couldn't reach Gemini. Check the server connection and retry."})
+            self.fail(504, "Gemini took too long to plan this room. Your scan is saved; try again.")
+        except (URLError, OSError):
+            trace.update("connection_failed")
+            self.fail(502, "Couldn't reach Gemini. Check the server connection and retry.")
+
+    def receive_drawing(self):
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= MAX_BODY:
+                self.reply(413, {"error": "The drawing photo is too large or empty."})
+                return
+            self.connection.settimeout(15)
+            job = drawings.submit(json.loads(self.rfile.read(length)))
+            print(f"Drawing received from {self.client_address[0]} ({length // 1024} KB); queued {job['id'][:8]}", flush=True)
+            self.reply(202, job)
+        except (ValueError, UnicodeDecodeError) as error:
+            self.fail(400, str(error))
+        except RuntimeError as error:
+            self.fail(503, str(error))
+        except (TimeoutError, OSError):
+            self.fail(400, "The drawing upload didn't finish. Try again.")
+
+    def fail(self, status, message):
+        print(f"  Failed ({status}): {message}", flush=True)
+        self.reply(status, {"error": message})
 
 
 if __name__ == "__main__":
+    load_env()
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8787"))
     print(f"Pocket Realm server listening on {host}:{port}. Gemini key configured: {bool(os.environ.get('GEMINI_API_KEY'))}", flush=True)

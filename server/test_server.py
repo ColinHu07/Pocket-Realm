@@ -266,6 +266,57 @@ class RoomPlanningTests(unittest.TestCase):
         failure.close()
 
 
+class FallbackTests(unittest.TestCase):
+    def setUp(self):
+        fixture = copy.deepcopy(ROOM_FIXTURE)
+        self.scan, self.plan = fixture["scan"], fixture["plan"]
+
+    def ok(self):
+        return io.BytesIO(json.dumps(response(self.plan)).encode())
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "primary", "GEMINI_FALLBACK_MODELS": "backup"})
+    def test_fallback_preserves_version_three_room_and_character_puzzle(self):
+        self.scan.update(friend="Nibbi", questVersion=1, planningVersion=3)
+        self.plan["challenge"] = {"blueprintID": "nibbi-mint", "introduction": "Let's bake!"}
+        with patch("server.urlopen", side_effect=[TimeoutError(), self.ok()]) as provider:
+            self.assertEqual(generate_plan(self.scan), self.plan)
+        for call in provider.call_args_list:
+            schema = json.loads(call.args[0].data)["response_format"]["schema"]
+            self.assertIn("challenge", schema["required"])
+            self.assertEqual(schema["properties"]["challenge"]["properties"]["blueprintID"]["enum"], list(QUESTS["Nibbi"]))
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "primary", "GEMINI_FALLBACK_MODELS": "backup, last"})
+    def test_all_fallbacks_share_the_original_time_budget(self):
+        with patch("server.time.monotonic", side_effect=[100, 100, 125, 150]), \
+             patch("server.urlopen", side_effect=[TimeoutError(), TimeoutError(), self.ok()]) as provider:
+            self.assertEqual(generate_plan(self.scan), self.plan)
+        self.assertEqual([call.kwargs["timeout"] for call in provider.call_args_list], [25, 25, 5])
+        with patch("server.time.monotonic", side_effect=[100, 100, 155]), \
+             patch("server.urlopen", side_effect=TimeoutError()) as provider, self.assertRaises(TimeoutError):
+            generate_plan(self.scan)
+        self.assertEqual(provider.call_count, 1)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "big-flash", "GEMINI_FALLBACK_MODELS": "lite, big-flash"})
+    def test_overloaded_or_hanging_model_falls_back_to_the_next(self):
+        busy = HTTPError("https://example.invalid", 503, "Unavailable", {}, io.BytesIO(b"{}"))
+        for failure in (busy, TimeoutError("read timed out"), HTTPError("https://example.invalid", 429, "Quota", {}, io.BytesIO(b"{}"))):
+            with self.subTest(failure=type(failure).__name__), patch("server.urlopen", side_effect=[failure, self.ok()]) as provider:
+                self.assertEqual(generate_plan(copy.deepcopy(self.scan)), self.plan)
+                models = [json.loads(call.args[0].data)["model"] for call in provider.call_args_list]
+                self.assertEqual(models, ["big-flash", "lite"])
+                self.assertLessEqual(provider.call_args_list[0].kwargs["timeout"], 25)
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "k", "GEMINI_MODEL": "big-flash", "GEMINI_FALLBACK_MODELS": "lite"})
+    def test_bad_key_does_not_fall_back_and_last_failure_surfaces(self):
+        forbidden = HTTPError("https://example.invalid", 403, "Forbidden", {}, io.BytesIO(b"{}"))
+        with patch("server.urlopen", side_effect=forbidden) as provider, self.assertRaises(HTTPError):
+            generate_plan(copy.deepcopy(self.scan))
+        self.assertEqual(provider.call_count, 1)
+        with patch("server.urlopen", side_effect=[TimeoutError(), TimeoutError()]) as provider, self.assertRaises(TimeoutError):
+            generate_plan(copy.deepcopy(self.scan))
+        self.assertEqual(provider.call_count, 2)
+
+
 class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

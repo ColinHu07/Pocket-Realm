@@ -80,7 +80,7 @@ Find your Mac's local hostname in another terminal:
 scutil --get LocalHostName
 ```
 
-If this prints `Colins-MacBook`, the proxy's base address is `http://Colins-MacBook.local:8787`. Older server-based clients must share its network and have local-network permission. Allow incoming Python connections in the Mac firewall if prompted. The current app's Connection screen accepts a Gemini key instead of a proxy address.
+If this prints `Colins-MacBook`, the proxy's base address is `http://Colins-MacBook.local:8787`. Local clients must share its network and have local-network permission. Allow incoming Python connections in the Mac firewall if prompted. The current app plans rooms directly with its selected provider; this address can be entered separately under **Drawing workshop** to use the drawing service.
 
 `GET /health` reports whether the server is running, whether a key is configured, the selected model, and `planningVersion: 3`. Its `lastRequest` receipt and the Terminal log show upload size, snapshot/furniture/surface counts, provider attempts, and the last processing stage. They never include photos, room descriptions, prompts, or credentials. `scan_received` confirms the Mac parsed the scan; `sending_to_gemini` records the outgoing attempt; `gemini_responded` records an HTTP 200; `plan_ready` confirms a complete validated plan. A provider error includes its HTTP status. Restart the server after updating its code; version 3 uses a wall-only Jungle plan and requires the updated app and server together. Health does not itself test the provider or reveal the key. The default server listens on the local network for hackathon testing, has no authentication, and should not be exposed to the public internet without authentication and rate limiting.
 
@@ -135,9 +135,48 @@ Validation includes the shared Swift/server JSON contract, mandatory review, sur
 - Leaving the reveal radius or losing tracking clears the proximity dwell timer.
 - Room saves atomically bundle a validated plan, geometry, and a secure ARWorldMap archive. Restoring never calls an AI provider, and no old positions are revealed before the saved coordinate frame is recognized.
 - Backgrounding during scanning requires a fresh scan on return. During gameplay, the app attempts to resume tracking. **Scan again** is the recovery path if relocalization fails.
-- Network/provider failures offer a manual retry using the same captured geometry and snapshots. The direct client does not automatically retry provider errors. The optional proxy retains its bounded retries for HTTP 503 only. There is no silent local or cross-provider fallback.
+- Network/provider failures offer a manual retry using the same captured geometry and snapshots. The direct client does not automatically retry provider errors. The optional proxy has bounded retries for HTTP 500/503 and explicit Gemini model fallback when configured. The direct clients have no silent local or cross-provider fallback.
 - Camera frames are sampled into at most six JPEGs with a maximum dimension of 640 pixels. They are held in memory and discarded after successful planning or rescan. Room data and images go directly to the selected provider over HTTPS. Gemini requests use `store: false`; provider-wide retention policies still apply.
-- The iPhone reads your API key from its Keychain. The optional proxy separately reads `GEMINI_API_KEY` from its environment.
+- The iPhone reads your API key from its Keychain. The optional proxy separately reads `GEMINI_API_KEY` from its environment or the git-ignored `server/.env` file; exported variables take precedence.
+
+## Sketch quests: drawings come to life
+
+Paper drawings become things in the game. Codex looks at each drawing, sculpts it in Blender, and decides how it behaves.
+
+In **Connection settings → Drawing workshop**, enter the workshop's HTTPS URL (or a local HTTP address on the same network). `ADVENTURE_SERVER` can provide a build-time default; an address entered by the user is preserved. The drawing workshop is separate from room planning: Gemini/Muse still run directly from the iPhone, and the workshop does not require its own Gemini key to make drawings.
+
+**Drawing challenges** is enabled by default but only adds traps when a workshop address or saved creation is available. Without either, the existing pickup-and-return quest works as before. Turn it off in settings to play without traps. During any trap, **Continue without a drawing** frees the keepsake if generation fails or you want to move on. After returning it, Nibbi, Cindlet, and Bloopi still run their existing interactive puzzles before awarding the badge.
+
+- **Sidekick.** On the welcome screen, **Draw a sidekick**: anything at all. When it's ready it stands on your room's floor, trots after you, and faces you when idle. Tap it, or **Talk**, to hear its lines.
+- **Traps.** After you greet your friend, their item is stuck in one of six random predicaments: moon-ice, a grumpy storm cloud, thornvines, a snoring boulder, a wobbly bubble, or a shadow puddle. Each has an open-ended drawing hint ("draw something that could thaw it, crack it, or politely ask the ice to let go").
+- **Your solution.** **Draw a solution** overlays a page-shaped guide on the live AR view, so tracking keeps running, and captures the frame. While Codex works, the card cycles through workshop updates ("The gnomes are arguing about the color. Your drawing wins."). The result is one of three kinds:
+  - a **tool**, which appears in your hand;
+  - a **character**, which pops in beside the trap, faces you, and talks;
+  - an **object**, which drops in nearby.
+
+  Tap its action button (e.g. **Knock! (2 to go)**) or the trap itself until the trap bursts. Then collect the item and return it as before.
+- **Inventory.** Every finished drawing is saved on the phone. Reuse one on a later trap (no new Codex job) or make it your sidekick.
+
+The app uploads a cropped JPEG (≤1024 px) to `POST /drawings` with `purpose` (`sidekick` or `challenge`), the trap description, and the friend. It polls `GET /drawings/<id>` and downloads `GET /drawings/<id>/model.usdz`. A ready status includes the **card** Codex chose: `kind`, `verb`, `uses` (1–5), `title`, `arrival`, `success`, `lines`, and `voice`. The server sanitizes all of it before the app speaks it.
+
+On the server, `server/drawing_worker.py` takes one job at a time. It copies `server/drawing_kit/` into a fresh job folder: `AGENTS.md` has Codex's instructions, and `kit.py` is the Blender helper. It also writes the game situation to `QUEST.md`. Then it runs `codex exec --sandbox workspace-write` with the drawing attached. Codex writes `build.py`, runs Blender headless, checks the Cycles preview, and calls `kit.finish(...)`. That exports `model.usdz` with the friends' USD settings and records the card. The worker requests a workspace-write sandbox for the job. Text in a drawing is treated as artwork. Jobs time out after 7 minutes; completed/failed jobs are pruned after 24 hours when the worker is idle. Generation time depends on the drawing and worker load.
+
+The worker needs a logged-in Codex CLI and Blender 5.2 at `/opt/blender/blender` on the same machine; the web server only needs a shared `JOBS_DIR`. Run the HTTP server and worker with the same absolute `JOBS_DIR`, for example in separate terminals:
+
+```sh
+JOBS_DIR="$PWD/server/jobs" python3 server/server.py
+JOBS_DIR="$PWD/server/jobs" python3 server/drawing_worker.py
+```
+
+A VPS deployment can run the worker as a systemd service and mount that same jobs folder into the web container. Restart both services after updating; the iPhone merge does not deploy the worker automatically.
+
+## Reusing rooms while testing drawings
+
+Use the existing **Use saved room** and **Replay this room** actions to test drawings without another scan or AI plan. The validated saved-room format, world-map reference-anchor gate, wall observations, and cross-friend puzzle selection remain shared with the normal game. Sidekicks appear only after room recognition and Start exploring. Replaying, rescanning, or leaving an encounter cancels its pending trap drawing and removes its helper; saved creations remain reusable.
+
+## Gemini model fallback
+
+`GEMINI_MODEL` is tried first. If `GEMINI_FALLBACK_MODELS` (comma-separated) is set, a failing (500/503), over-quota (429), or slow model (over 25 s) hands off to the next model in the list, within the shared 55-second request budget. Duplicate model names are tried only once. Busy Flash models often hang rather than fail, so the time limit matters as much as the error codes. Bad keys and invalid requests don't fall back. `/health` reports both settings.
 
 ## Blender sources and exports
 
@@ -205,7 +244,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
   -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
 ```
 
-The Swift tests cover scan coverage, progression, mandatory room review, proximity dwell, tracking loss, surface/quest validation, the one-location case, rotated furniture supports, floor-polygon bounds, and constrained height refinement. The runtime animation validator also checks all nine characters stay above their support during every reaction, return within 1.8 cm at idle, and ignore reaction particles when finding their feet. Server tests cover spatial snapshot validation, room-grounded prompts and schemas, partial-plan rejection, backward compatibility, provider contracts, missing credentials, and mocked HTTP round trips. Both suites read `Tests/Fixtures/room-plan.json`; its image is a test-only JPEG header stub, never a live API input. The asset scripts verify closed connected bodies, geometry budgets, dimensions, Y-up orientation, embedded paint textures, and actual RealityKit loading with textured materials.
+The Swift tests cover scan coverage, progression, mandatory room review, proximity dwell, tracking loss, surface/quest validation, the one-location case, rotated furniture supports, floor-polygon bounds, and constrained height refinement. The runtime animation validator also checks all nine characters stay above their support during every reaction, return within 1.8 cm at idle, and ignore reaction particles when finding their feet. Server tests cover spatial snapshot validation, room-grounded prompts and schemas, partial-plan rejection, backward compatibility, provider contracts, missing credentials, and mocked HTTP round trips. Integration tests cover drawing traps followed by every character puzzle, saved-room replay, a drawing-only workshop without a Gemini key, and model fallback preserving version-3 room and puzzle schemas within the time budget. Both suites read `Tests/Fixtures/room-plan.json`; its image is a test-only JPEG header stub, never a live API input. The asset scripts verify closed connected bodies, geometry budgets, dimensions, Y-up orientation, embedded paint textures, and actual RealityKit loading with textured materials.
 
 Saved-room tests cover atomic replacement, corruption/version rejection, transform and observation round trips, cross-friend plan reuse, and the relocalization gate. Actual room detection, saved-map alignment, scan-to-game coordinate alignment, tabletop/floor contact, interrupted-session recovery, and reveal behavior need the physical iPhone. The simulator cannot validate LiDAR/RoomPlan. A live provider smoke test requires your configured key and model access.
 

@@ -90,13 +90,18 @@ enum CreatureFactory {
             leaf.position = [0.022, 0.06, 0]
             root.addChild(leaf)
         }
-        let glow = UnlitMaterial(color: color(friend))
+        addSparkles(to: root, color: color(friend), sparkRadius: friend == .glimlo ? 0.01 : 0.005)
+        return root
+    }
+
+    /// A ring of glowing sparks that marks a keepsake as collectible.
+    static func addSparkles(to root: Entity, color: UIColor, radius: Float = 0.105, sparkRadius: Float = 0.005) {
+        let glow = UnlitMaterial(color: color)
         for index in 0..<8 {
             let angle = Float(index) * .pi / 4
-            let spark = ModelEntity(mesh: .generateSphere(radius: friend == .glimlo ? 0.01 : 0.005), materials: [glow])
-            spark.position = [cos(angle) * 0.105, sin(angle) * 0.105, 0]
+            let spark = ModelEntity(mesh: .generateSphere(radius: sparkRadius), materials: [glow])
+            spark.position = [cos(angle) * radius, sin(angle) * radius, 0]
             root.addChild(spark)
         }
-        return root
     }
 }

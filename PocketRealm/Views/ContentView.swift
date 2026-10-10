@@ -23,7 +23,7 @@ struct ContentView: View {
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: experience.phase)
         .onChange(of: experience.phase) { _, phase in
             // Walking objectives stay small. Review and deliberate play open the controls.
-            drawerExpanded = [.scanning, .planning, .restoring, .ready, .playing, .complete].contains(phase)
+            drawerExpanded = [.scanning, .planning, .restoring, .ready, .challenge, .playing, .complete].contains(phase)
             experience.setChallengePanelVisible(drawerExpanded)
             roomLocationsExpanded = false
         }
@@ -35,6 +35,11 @@ struct ContentView: View {
         .sheet(isPresented: $experience.connectionPresented) { connection }
         .sheet(isPresented: $experience.themePresented) { themePicker }
         .sheet(item: $previewFriend) { FriendPreview(friend: $0) }
+        .fullScreenCover(isPresented: Binding(get: { experience.drawingPresented && !experience.started },
+                                              set: { experience.drawingPresented = $0 })) {
+            DrawingCaptureView(title: experience.drawingTitle, prompt: experience.drawingPrompt, source: .camera,
+                               onUse: experience.submitDrawing, onClose: { experience.drawingPresented = false })
+        }
         .alert("A little help needed", isPresented: Binding(get: { experience.issue != nil }, set: { if !$0 { experience.dismissIssue() } })) {
             if experience.cameraDenied {
                 Button("Open Settings") { if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) } }
@@ -95,10 +100,11 @@ struct ContentView: View {
                         }
                     }.padding(14).frame(maxWidth: .infinity, alignment: .leading)
                         .background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 24))
+                    drawingCard
                     VStack(spacing: 16) {
                         step("01", "Take a 360° look around", "A slow sweep captures visible walls and furniture.")
                         step("02", "Make a little magic", "Choose a world for your walls, with little surprises to find.")
-                        step("03", "Explore when you're ready", "Review your room plan, then meet \(experience.friend.name).")
+                        step("03", "Draw your way through", "Meet \(experience.friend.name). When something's in the way, draw a solution and watch it come to life.")
                     }.padding(20).background(.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 22))
                     Spacer(minLength: 0)
                 }.padding(24).frame(minHeight: geometry.size.height)
@@ -128,6 +134,149 @@ struct ContentView: View {
                     .font(.system(size: 10)).foregroundStyle(paper.opacity(0.55)).multilineTextAlignment(.center)
             }.padding(.horizontal, 24).padding(.top, 14).padding(.bottom, 12).background(ink)
         }
+    }
+
+    private var drawingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button { experience.openDrawing(.sidekick) } label: {
+                HStack(spacing: 14) {
+                    thumbnail(experience.sidekickDrawing.isWorking ? experience.sidekickPhoto : experience.sidekick?.photo ?? experience.sidekickPhoto,
+                              placeholder: "pencil.and.scribble", size: 46)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(experience.sidekick.map { "Sidekick · \($0.card.title.isEmpty ? $0.card.name : $0.card.title)" } ?? "Draw a sidekick")
+                            .font(.system(size: 15, weight: .semibold)).foregroundStyle(paper)
+                        Text(sidekickStatus)
+                            .font(.system(size: 12))
+                            .foregroundStyle(failed(experience.sidekickDrawing) ? .orange : paper.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    if experience.sidekickDrawing.isWorking { ProgressView().tint(lime) }
+                    else {
+                        Image(systemName: experience.sidekick == nil ? "chevron.right" : "pencil")
+                            .foregroundStyle(lime).font(.system(size: 12, weight: .semibold))
+                    }
+                }
+            }.buttonStyle(.plain).accessibilityIdentifier("drawingButton")
+                .accessibilityHint("Opens the camera to photograph a paper drawing")
+            if !experience.addressIsValid {
+                Button("Connect drawing workshop", action: experience.openWorkshopSettings)
+                    .font(.subheadline).foregroundStyle(lime).frame(minHeight: 44)
+            }
+            if !experience.inventory.isEmpty {
+                Text("YOUR CREATIONS · TAP TO MAKE ONE YOUR SIDEKICK").tracking(1)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(lime.opacity(0.8))
+                creationStrip(selected: experience.sidekick?.id) { experience.chooseSidekick($0) }
+            }
+        }.padding(14).background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 22))
+    }
+
+    private var sidekickStatus: String {
+        switch experience.sidekickDrawing {
+        case .none, .ready:
+            if let sidekick = experience.sidekick { return Workshop.arrival(sidekick.card) }
+            return "Draw anything on paper and bring it along as a 3D companion."
+        case .failed(let reason): return reason
+        default: return Workshop.whimsy(experience.whimsy, friend: experience.friend.name)
+        }
+    }
+
+    private func failed(_ progress: DrawingProgress) -> Bool {
+        if case .failed = progress { return true }
+        return false
+    }
+
+    private func thumbnail(_ image: UIImage?, placeholder: String, size: CGFloat) -> some View {
+        Group {
+            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            else { Image(systemName: placeholder).font(.system(size: size * 0.45)).foregroundStyle(lime) }
+        }.frame(width: size, height: size).background(lime.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: size * 0.3))
+    }
+
+    private func creationStrip(selected: String?, choose: @escaping (Creation) -> Void) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(experience.inventory) { creation in
+                    Button { choose(creation) } label: {
+                        VStack(spacing: 5) {
+                            thumbnail(creation.photo, placeholder: "cube.fill", size: 54)
+                                .overlay(RoundedRectangle(cornerRadius: 16).stroke(selected == creation.id ? lime : .clear, lineWidth: 2))
+                            Text(creation.card.title.isEmpty ? creation.card.name : creation.card.title)
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(paper.opacity(0.8)).lineLimit(1)
+                            Text(creation.card.kind.rawValue.uppercased()).font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundStyle(lime.opacity(0.7))
+                        }.frame(width: 66)
+                    }.buttonStyle(.plain).accessibilityLabel("\(creation.card.name), \(creation.card.kind.rawValue)")
+                }
+            }
+        }
+    }
+
+    /// The sidekick traveling with you; tap to hear from them.
+    @ViewBuilder private var sidekickPill: some View {
+        if let sidekick = experience.sidekick, !experience.sidekickDrawing.isWorking {
+            Button(action: experience.talkToSidekick) {
+                HStack(spacing: 7) {
+                    thumbnail(sidekick.photo, placeholder: "face.smiling", size: 26)
+                    Text("Talk")
+                }.font(.system(size: 12, weight: .semibold)).foregroundStyle(lime)
+                    .padding(.leading, 6).padding(.trailing, 14).frame(minHeight: 40)
+                    .background(.ultraThinMaterial, in: Capsule())
+            }.accessibilityLabel("Talk to your sidekick, \(sidekick.card.displayName)")
+        } else if experience.sidekickDrawing.isWorking {
+            HStack(spacing: 7) {
+                ProgressView().controlSize(.mini).tint(lime)
+                Text("Sidekick on the way…")
+            }.font(.system(size: 12, weight: .semibold)).foregroundStyle(lime)
+                .padding(.horizontal, 14).frame(minHeight: 40).background(.ultraThinMaterial, in: Capsule())
+        }
+    }
+
+    @ViewBuilder private var challengeControls: some View {
+        if let helper = experience.helper, let progress = experience.trapProgress {
+            HStack(spacing: 6) {
+                ForEach(0..<progress.needed, id: \.self) { index in
+                    Circle().fill(index < progress.done ? lime : .white.opacity(0.18)).frame(width: 9, height: 9)
+                }
+                Spacer()
+                Text(helper.card.kind.rawValue.uppercased()).font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundStyle(lime.opacity(0.7))
+            }
+            action(experience.itemInReach ? "\(helper.card.verbButton) (\(progress.remaining) to go)" : "Walk to the \(experience.questCategory)",
+                   icon: helper.card.kind == .tool ? "hand.tap.fill" : "sparkles",
+                   enabled: experience.trackingReady && experience.itemInReach, action: experience.useHelper)
+            HStack(spacing: 18) {
+                if helper.card.kind == .character {
+                    Button(action: experience.talkToHelper) { Label("Talk to \(helper.card.displayName)", systemImage: "bubble.left.fill") }
+                }
+                Button { experience.openDrawing(.challenge) } label: { Label("Draw something else", systemImage: "pencil") }
+            }.font(.system(size: 13, weight: .semibold)).foregroundStyle(lime)
+            footnote("Tap the trap itself, or the button, when you're close.")
+        } else if experience.challengeDrawing.isWorking {
+            HStack(alignment: .top, spacing: 12) {
+                if let photo = experience.challengePhoto { thumbnail(photo, placeholder: "pencil", size: 44) }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) { ProgressView().controlSize(.small).tint(lime); Text("In the workshop").font(.system(size: 13, weight: .semibold)) }
+                        .foregroundStyle(lime)
+                    Text(Workshop.whimsy(experience.whimsy, friend: experience.friend.name))
+                        .font(.system(size: 14)).foregroundStyle(paper.opacity(0.8)).fixedSize(horizontal: false, vertical: true)
+                        .animation(.easeInOut, value: experience.whimsy)
+                }
+            }
+            footnote("Walk over to the \(experience.questCategory) while you wait. It pops into the room when it's ready.")
+        } else {
+            if case .failed(let reason) = experience.challengeDrawing {
+                Text(reason).font(.subheadline).foregroundStyle(.orange)
+            }
+            action("Draw a solution", icon: "pencil.and.scribble") { experience.openDrawing(.challenge) }
+            if !experience.inventory.isEmpty {
+                Text("OR SEND IN SOMETHING YOU ALREADY DREW").tracking(1)
+                    .font(.system(size: 9, weight: .bold, design: .monospaced)).foregroundStyle(lime.opacity(0.8))
+                creationStrip(selected: nil) { experience.deployHelper($0) }
+            }
+        }
+        Button("Continue without a drawing", action: experience.skipDrawingChallenge)
+            .font(.subheadline).foregroundStyle(lime).frame(minHeight: 44)
     }
 
     private var friendPicker: some View {
@@ -174,27 +323,36 @@ struct ContentView: View {
         GeometryReader { geometry in
             ZStack {
                 ARSurface(experience: experience).ignoresSafeArea()
-                LinearGradient(colors: [.black.opacity(0.5), .clear, .clear, .black.opacity(0.25)], startPoint: .top, endPoint: .bottom)
-                    .ignoresSafeArea().allowsHitTesting(false)
-                VStack(spacing: 10) {
-                    adventureToolbar
-                    if !experience.trackingReady {
-                        Label(experience.trackingMessage, systemImage: "viewfinder")
-                            .font(.subheadline).foregroundStyle(paper)
-                            .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(ink.opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
-                            .accessibilityIdentifier("trackingGuidance")
-                    }
-                    Spacer(minLength: 12)
-                    QuestDrawer(isExpanded: $drawerExpanded, friend: experience.friend,
-                                label: objectiveLabel, title: drawerExpanded ? title : compactTitle,
-                                summary: compactSummary,
-                                maxHeight: geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.72 : 0.56)) {
-                        questDetails
-                    } footer: {
-                        questFooter
-                    }
-                }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8)
+                if !experience.drawingPresented {
+                    LinearGradient(colors: [.black.opacity(0.5), .clear, .clear, .black.opacity(0.25)], startPoint: .top, endPoint: .bottom)
+                        .ignoresSafeArea().allowsHitTesting(false)
+                    VStack(spacing: 10) {
+                        adventureToolbar
+                        HStack { Spacer(); sidekickPill }
+                        if !experience.trackingReady {
+                            Label(experience.trackingMessage, systemImage: "viewfinder")
+                                .font(.subheadline).foregroundStyle(paper)
+                                .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                                .background(ink.opacity(0.92), in: RoundedRectangle(cornerRadius: 16))
+                                .accessibilityIdentifier("trackingGuidance")
+                        }
+                        Spacer(minLength: 12)
+                        QuestDrawer(isExpanded: $drawerExpanded, friend: experience.friend,
+                                    label: objectiveLabel, title: drawerExpanded ? title : compactTitle,
+                                    summary: compactSummary,
+                                    maxHeight: geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.72 : 0.56)) {
+                            questDetails
+                        } footer: {
+                            questFooter
+                        }
+                    }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 8)
+                }
+                if experience.drawingPresented {
+                    DrawingCaptureView(title: experience.drawingTitle, prompt: experience.drawingPrompt,
+                        source: .ar { experience.captureDrawingFrame(guide: $0) },
+                        onUse: experience.submitDrawing, onClose: { experience.drawingPresented = false })
+                        .zIndex(2)
+                }
             }
         }
     }
@@ -245,11 +403,12 @@ struct ContentView: View {
         let label: String
         switch experience.phase {
         case .exploring, .revealed: label = "1 OF 3 · MEET \(experience.friend.name.uppercased())"
+        case .challenge: label = "2 OF 3 · FREE THE KEEPSAKE"
         case .questing: label = "2 OF 3 · FIND THE KEEPSAKE"
         case .returning, .playing: label = "3 OF 3 · \(experience.game.challenge == nil ? "REUNITE" : "PLAY TOGETHER")"
         default: label = cardLabel
         }
-        if experience.trackingReady, [.exploring, .questing, .returning].contains(experience.phase),
+        if experience.trackingReady, [.exploring, .challenge, .questing, .returning].contains(experience.phase),
            let distance = experience.objectiveDistance {
             return label + String(format: " · %.1f m", distance)
         }
@@ -276,6 +435,7 @@ struct ContentView: View {
         case .ready: return "Your room is ready. Open to take a look at the plan."
         case .exploring: return experience.proximity.armed ? detail : "Take a few steps back, then follow the clue. Tap for details."
         case .revealed: return experience.inReach ? "A new friend is ready to say hello." : "Move a little closer to say hello."
+        case .challenge: return "Draw a helper or use a saved creation. Tap to open your drawing quest."
         case .questing: return "Look for a little glow by the \(experience.questCategory)."
         case .returning: return "Keepsake found! Your friend is waiting where you met."
         case .playing: return "Tap or swipe up to keep playing. Your progress stays."
@@ -335,6 +495,9 @@ struct ContentView: View {
                 Label(experience.proximity.armed ? "Walk closer. \(experience.friend.name) will pop out to meet you." : "Step back a little, then explore.", systemImage: "figure.walk")
                     .font(.subheadline).foregroundStyle(lime)
             case .revealed:
+                friendInteractions
+            case .challenge:
+                challengeControls
                 friendInteractions
             case .questing:
                 Label("Look for a glowing \(experience.friend.itemName) by the \(experience.questCategory).", systemImage: experience.friend.symbol)
@@ -411,6 +574,7 @@ struct ContentView: View {
         case .restoring: return "WELCOME BACK"
         case .ready: return experience.usingSavedRoom ? "YOUR SAVED ROOM" : "YOUR ROOM COMES FIRST"
         case .scanning, .planning: return "YOUR ROOM COMES FIRST"
+        case .challenge: return "DRAW YOUR WAY OUT"
         case .questing, .returning: return "A LITTLE FAVOR"
         case .playing: return "BETTER TOGETHER"
         case .complete: return "FRIENDSHIP EARNED"
@@ -426,6 +590,7 @@ struct ContentView: View {
         case .ready: return experience.usingSavedRoom ? "Your room is back." : "Your room, understood."
         case .exploring: return "Someone's hiding."
         case .revealed: return "Meet \(experience.friend.name)."
+        case .challenge: return experience.challenge?.title ?? "A tricky spot."
         case .questing: return experience.friend.questTitle
         case .returning: return "A little delivery."
         case .playing: return experience.game.challenge?.blueprint.title ?? "Let's play."
@@ -441,7 +606,10 @@ struct ContentView: View {
         case .ready: return experience.plan?.room?.summary ?? "Your room plan is ready."
         case .exploring: return experience.plan?.hint ?? "Explore the furniture around you."
         case .revealed: return experience.dialogue ?? experience.friend.personality
-        case .questing: return experience.friend.questRequest
+        case .challenge: return experience.helper == nil
+            ? (experience.challenge?.prompt ?? "Draw something to help.")
+            : (experience.dialogue ?? experience.challenge?.prompt ?? "")
+        case .questing: return experience.questRequest
         case .returning: return "Bring the \(experience.friend.itemName) back to \(experience.friend.name). Your friend is waiting where you met."
         case .playing: return experience.game.challenge?.feedback ?? "Let's play together."
         case .complete: return experience.dialogue ?? experience.friend.thanks
@@ -671,6 +839,27 @@ private struct ConnectionSettings: View {
                         Text("After your scan, this iPhone sends measured walls, openings, furniture, and up to six room snapshots directly to \(experience.provider.company) to plan your room and adventure.")
                         Text("Use saved room works without another AI call. During play, Adventure options → Replay this room reuses the current scan, even when you try another friend. Your saved room and key stay on this iPhone.")
                     }.font(.footnote)
+                    Section("Drawing workshop") {
+                        TextField("https://your-workshop.example", text: $experience.serverAddress)
+                            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                            .accessibilityLabel("Drawing workshop address")
+                            .accessibilityIdentifier("drawingWorkshopAddress")
+                        Toggle("Drawing challenges", isOn: $experience.sketchQuestsEnabled)
+                            .accessibilityIdentifier("sketchQuestsToggle")
+                        if !experience.serverAddress.isEmpty && !experience.addressIsValid {
+                            Text("Enter the full workshop address, starting with https:// or http://.")
+                                .font(.footnote).foregroundStyle(.orange)
+                        }
+                        Text("Connect a workshop to bring paper drawings to life. Drawing challenges start when a workshop address or saved creation is available. You can always continue without a drawing.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                        Text("Drawing photos go to this workshop to create 3D models. Your finished creations stay on this iPhone and can be reused offline.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }.id("drawing-workshop")
+                }
+                .onAppear {
+                    if experience.workshopSettingsRequested {
+                        scroll.scrollTo("drawing-workshop", anchor: .top)
+                    }
                 }
                 .onChange(of: experience.provider) { _, _ in
                     apiKeyEntry = ""; showResult = false; keyFocused = false
@@ -685,7 +874,7 @@ private struct ConnectionSettings: View {
             }
             .navigationTitle("Connection")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { experience.connectionPresented = false } } }
-            .onDisappear { apiKeyEntry = "" }
+            .onDisappear { apiKeyEntry = ""; experience.workshopSettingsRequested = false }
             .alert(connected ? "\(experience.provider.name) is connected" : "Connection failed", isPresented: $showResult) {
                 Button("OK", role: .cancel) {}
             } message: { Text(resultMessage) }

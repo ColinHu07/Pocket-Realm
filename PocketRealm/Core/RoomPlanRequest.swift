@@ -21,7 +21,11 @@ struct RoomPlanRequest {
         }
         func text(_ limit: Int) -> [String: Any] { ["type": "string", "maxLength": limit] }
         func choices(_ values: [String]) -> [String: Any] { ["type": "string", "enum": values] }
-        func json<T: Encodable>(_ value: T) throws -> String { String(decoding: try JSONEncoder().encode(value), as: UTF8.self) }
+        func json<T: Encodable>(_ value: T) throws -> String {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .sortedKeys
+            return String(decoding: try encoder.encode(value), as: UTF8.self)
+        }
         let ids = candidates.map(\.id)
         let walls = context.surfaces.filter { $0.kind == .wall }.map(\.id)
         let wallID: [String: Any] = walls.isEmpty ? ["type": "string"] : choices(walls)

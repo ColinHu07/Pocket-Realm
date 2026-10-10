@@ -29,7 +29,30 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var hasAPIKey = false
     @Published private(set) var geminiModel = GeminiModel(rawValue: UserDefaults.standard.string(forKey: "geminiModel") ?? "") ?? .flash38
     @Published private(set) var connectionState: PlanningConnectionState = .needsKey
+    @Published var serverAddress = ARExperience.initialServerAddress() {
+        didSet { UserDefaults.standard.set(serverAddress, forKey: "adventureServer") }
+    }
+    @Published var sketchQuestsEnabled = UserDefaults.standard.object(forKey: "sketchQuestsEnabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(sketchQuestsEnabled, forKey: "sketchQuestsEnabled") }
+    }
+
+    /// Update the bundled default without replacing a workshop the user configured themselves.
+    private static func initialServerAddress() -> String {
+        let defaults = UserDefaults.standard
+        let saved = defaults.string(forKey: "adventureServer")
+        let previousDefault = defaults.string(forKey: "adventureServerDefault")
+        let bundled = (Bundle.main.object(forInfoDictionaryKey: "AdventureServerDefault") as? String ?? "")
+            .trimmingCharacters(in: .whitespaces)
+        if !bundled.isEmpty, !bundled.hasPrefix("$("), defaults.string(forKey: "adventureServerDefault") != bundled {
+            defaults.set(bundled, forKey: "adventureServerDefault")
+            if saved == nil || saved == previousDefault {
+                defaults.set(bundled, forKey: "adventureServer")
+            }
+        }
+        return defaults.string(forKey: "adventureServer").flatMap { $0.isEmpty ? nil : $0 } ?? ""
+    }
     @Published var connectionPresented = false
+    @Published var workshopSettingsRequested = false
     @Published var themePresented = false
     @Published private(set) var challengePanelVisible = true
     @Published private(set) var theme = RealmTheme(rawValue: UserDefaults.standard.string(forKey: "realmTheme") ?? "") ?? .original
@@ -45,6 +68,19 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var savingRoom = false
     @Published private(set) var usingSavedRoom = false
     @Published private(set) var restoreMessage = "Point the camera around the same room to line everything up."
+    // Sketch quests: drawings become a sidekick, and helpers that clear traps.
+    @Published private(set) var sidekickDrawing = DrawingProgress.none
+    @Published private(set) var sidekickPhoto: UIImage?
+    @Published private(set) var challengeDrawing = DrawingProgress.none
+    @Published private(set) var challengePhoto: UIImage?
+    @Published private(set) var inventory: [Creation] = Inventory.load()
+    @Published private(set) var sidekick: Creation?
+    @Published private(set) var challenge: Challenge?
+    @Published private(set) var trapProgress: TrapProgress?
+    @Published private(set) var helper: Creation?
+    @Published private(set) var whimsy = 0
+    @Published var drawingPresented = false
+    @Published private(set) var drawingPurpose = DrawingPurpose.sidekick
 
     let arView = ARView(frame: .zero, cameraMode: .ar, automaticallyConfigureSession: false)
     let supported = RoomCaptureSession.isSupported
@@ -72,6 +108,18 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     private var generation = UUID()
     private var planTask: Task<Void, Never>?
     private var connectionTask: Task<Void, Never>?
+    private var drawingTasks: [DrawingPurpose: Task<Void, Never>] = [:]
+    private let cameraAnchor = AnchorEntity(.camera)
+    /// World-space parent for the sidekick pet, which walks around the room on its own.
+    private let petAnchor = AnchorEntity(world: .zero)
+    private var trapRig: TrapRig?
+    private var helperRig: HelperRig?
+    private var sidekickRig: HelperRig?
+    private var helperIsFresh = false
+    private var helperLine = 0
+    private var sidekickLine = 0
+    private var keepsakeLift: Float = 0
+    private var lastWhimsy: Double = 0
     private var candidates: [RoomCandidate] = []
     private var spawnTransforms: [String: simd_float4x4] = [:]
     private var cameraPositions: [SIMD3<Float>] = []
@@ -101,19 +149,25 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     var modelName: String { planningClient.modelName }
     var inReach: Bool { anchor?.isAnchored == true && (distance ?? .infinity) <= 2 }
     var itemInReach: Bool { questAnchor?.isAnchored == true && (questDistance ?? .infinity) <= 1.3 }
-    var objectiveDistance: Float? { phase == .questing ? questDistance : distance }
+    var objectiveDistance: Float? { [.challenge, .questing].contains(phase) ? questDistance : distance }
     var canRetryPlan: Bool { !candidates.isEmpty && roomContext != nil && !photos.isEmpty && !requesting }
     var canReplayRoom: Bool {
         started && replayRoom != nil && roomContext != nil && themeRoom != nil &&
             ![.scanning, .planning, .restoring].contains(phase) && !requesting && !failed
     }
-    var challengeAvailable: Bool { trackingReady && inReach && challengePanelVisible && !suspended && !interrupted && !themePresented && !connectionPresented }
+    var challengeAvailable: Bool { trackingReady && inReach && challengePanelVisible && !suspended && !interrupted && !themePresented && !connectionPresented && !drawingPresented }
 
     func setChallengePanelVisible(_ visible: Bool) {
         guard challengePanelVisible != visible else { return }
         challengePanelVisible = visible
         // Don't let Bloopi demonstrate moves behind a tucked-away drawer.
         if !visible { game.advanceChallenge(delta: 0, available: false) }
+    }
+    var addressIsValid: Bool { (try? AdventureClient.endpoint(serverAddress)) != nil }
+    var canPlaySketchQuests: Bool { sketchQuestsEnabled && (addressIsValid || !inventory.isEmpty) }
+    var questRequest: String {
+        guard let challenge else { return friend.questRequest }
+        return "\(challenge.cleared) Pick up the \(friend.itemName) and bring it back to \(friend.name)."
     }
 
     override init() {
@@ -128,6 +182,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             selectProvider(.muse); connectionPresented = true
         }
         arView.session.delegate = self
+        arView.scene.addAnchor(cameraAnchor)
+        arView.scene.addAnchor(petAnchor)
+        if let id = UserDefaults.standard.string(forKey: "sidekick") { sidekick = inventory.first { $0.id == id } }
         arView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(tapFriend(_:))))
         do {
             storedRoom = try roomStore.load()
@@ -179,6 +236,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         capture?.stop(pauseARSession: false)
         capture = nil
         speech.stopSpeaking(at: .immediate)
+        sidekickRig?.root.removeFromParent()
+        sidekickRig = nil
         if let anchor { arView.scene.removeAnchor(anchor) }
         if let worldAnchor { arView.session.remove(anchor: worldAnchor) }
         clearQuest()
@@ -569,6 +628,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         let blueprint = selected.challenge.flatMap { QuestBlueprint(rawValue: $0.blueprintID) } ?? QuestBlueprint.first(for: selectedFriend)
         guard game.replayRoom(challenge: blueprint.map { QuestGame(blueprint: $0, introduction: selected.challenge?.introduction) }) else { return }
         speech.stopSpeaking(at: .immediate)
+        sidekickRig?.root.removeFromParent()
+        sidekickRig = nil
         if let anchor { arView.scene.removeAnchor(anchor) }
         if let worldAnchor { arView.session.remove(anchor: worldAnchor) }
         clearQuest()
@@ -598,6 +659,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         prepareQuest(friendID: plan.objectID, keepsakeID: room.keepsakeObjectID)
         proximity = ProximityGate()
         game.beginExploring()
+        showSidekick(announce: true)
     }
 
     private func reveal() {
@@ -688,6 +750,18 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     private func clearQuest() {
+        drawingPresented = false
+        helperRig?.root.removeFromParent()
+        helperRig = nil
+        trapRig = nil
+        helper = nil
+        trapProgress = nil
+        challenge = nil
+        keepsakeLift = 0
+        drawingTasks[.challenge]?.cancel()
+        drawingTasks[.challenge] = nil
+        challengeDrawing = .none
+        challengePhoto = nil
         if let questAnchor { arView.scene.removeAnchor(questAnchor) }
         if let questWorldAnchor { arView.session.remove(anchor: questWorldAnchor) }
         questAnchor = nil
@@ -698,12 +772,247 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     func talk() {
-        guard let questAnchor, game.talk(trackingReady: trackingReady, inReach: inReach) else { return }
+        guard let questAnchor, game.talk(trackingReady: trackingReady, inReach: inReach,
+                                        withDrawingChallenge: canPlaySketchQuests) else { return }
         let item = CreatureFactory.keepsake(friend)
         questAnchor.addChild(item)
         keepsake = item
-        speak((plan?.greeting ?? "Hi! I'm \(friend.name).") + " " + friend.questRequest)
+        guard phase == .challenge else {
+            speak((plan?.greeting ?? "Hi! I'm \(friend.name).") + " " + friend.questRequest)
+            creatureAnimator?.react(.greeting)
+            return
+        }
+        let trap = Challenge.pick(seed: Int.random(in: 0..<6_000), item: friend.itemName, place: questCategory)
+        let rig = TrapRig(challenge: trap, accent: CreatureFactory.color(friend))
+        questAnchor.addChild(rig.root)
+        trapRig = rig
+        challenge = trap
+        keepsakeLift = rig.keepsakeLift
+        item.isEnabled = !rig.hidesKeepsake
+        speak((plan?.greeting ?? "Hi! I'm \(friend.name).") + " " + trap.plea)
         creatureAnimator?.react(.greeting)
+    }
+
+    // MARK: Sketch quests: paper drawing → Codex + Blender → something in the game
+
+    func openWorkshopSettings() {
+        workshopSettingsRequested = true
+        connectionPresented = true
+    }
+
+    func openDrawing(_ purpose: DrawingPurpose) {
+        guard addressIsValid else { openWorkshopSettings(); return }
+        guard purpose != .challenge || phase == .challenge else { return }
+        drawingPurpose = purpose
+        drawingPresented = true
+    }
+
+    var drawingTitle: String {
+        drawingPurpose == .challenge ? (challenge?.title ?? "Draw a solution") : "Draw a sidekick"
+    }
+
+    var drawingPrompt: String {
+        drawingPurpose == .challenge ? (challenge?.prompt ?? "Draw something to help.")
+            : "Draw anyone or anything to bring on your adventure with \(friend.name): a creature, a robot, a teapot, a cloud with opinions…"
+    }
+
+    func submitDrawing(_ image: UIImage) {
+        let purpose = drawingPurpose
+        drawingTasks[purpose]?.cancel()
+        setDrawing(.uploading, photo: image, for: purpose)
+        guard let jpeg = DrawingWorkshop.jpeg(from: image) else {
+            setDrawing(.failed("Couldn't read that photo. Try again."), for: purpose)
+            return
+        }
+        guard addressIsValid else { setDrawing(.failed(PlanError.invalidURL.localizedDescription), for: purpose); return }
+        let address = serverAddress
+        let friendName = friend.name
+        let context = purpose == .challenge ? challenge?.codexContext : nil
+        drawingTasks[purpose] = Task { [weak self] in
+            do {
+                var status = try await DrawingWorkshop.submit(address: address, jpeg: jpeg, purpose: purpose,
+                                                              challenge: context, friend: friendName)
+                var misses = 0
+                let deadline = Date().addingTimeInterval(15 * 60)
+                while !Task.isCancelled {
+                    if status.status == "ready" {
+                        let model = try await DrawingWorkshop.download(address: address, id: status.id)
+                        guard !Task.isCancelled, let self else { return }
+                        let card = status.card ?? DrawingCard(name: status.name ?? "drawing", kind: .object)
+                        self.inventory = try Inventory.add(id: status.id, card: card, model: model, photo: image, to: self.inventory)
+                        self.setDrawing(.ready(name: card.name), for: purpose)
+                        if let creation = self.inventory.first { self.arrived(creation, for: purpose) }
+                        return
+                    }
+                    self?.setDrawing(DrawingProgress(status), for: purpose)
+                    if status.status == "failed" { return }
+                    guard Date() < deadline else { throw PlanError.server("Your drawing took too long. Try again.") }
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    do {
+                        status = try await DrawingWorkshop.status(address: address, id: status.id)
+                        misses = 0
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        // Ride out brief network drops while walking around the room.
+                        misses += 1
+                        if misses >= 10 { throw error }
+                    }
+                }
+            } catch {
+                guard !Task.isCancelled, let self else { return }
+                self.setDrawing(.failed(error.localizedDescription), for: purpose)
+            }
+        }
+    }
+
+    private func setDrawing(_ progress: DrawingProgress, photo: UIImage? = nil, for purpose: DrawingPurpose) {
+        switch purpose {
+        case .sidekick:
+            sidekickDrawing = progress
+            if let photo { sidekickPhoto = photo }
+        case .challenge:
+            challengeDrawing = progress
+            if let photo { challengePhoto = photo }
+        }
+    }
+
+    private func arrived(_ creation: Creation, for purpose: DrawingPurpose) {
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        switch purpose {
+        case .sidekick: chooseSidekick(creation)
+        case .challenge: deployHelper(creation, fresh: true)
+        }
+    }
+
+    /// Photographs paper held up to the AR camera without interrupting room tracking.
+    /// `guide` is in the AR view's coordinates (the full screen).
+    func captureDrawingFrame(guide: CGRect) -> UIImage? {
+        guard let frame = arView.session.currentFrame else { return nil }
+        let view = arView.bounds.size
+        guard view.width > 0, view.height > 0 else { return nil }
+        let padded = guide.insetBy(dx: -guide.width * 0.06, dy: -guide.height * 0.06)
+        let normalizedView = CGRect(x: padded.minX / view.width, y: padded.minY / view.height,
+                                    width: padded.width / view.width, height: padded.height / view.height)
+        // displayTransform maps normalized camera-image coordinates (top-left origin) to the screen.
+        let toImage = frame.displayTransform(for: .portrait, viewportSize: view).inverted()
+        let region = normalizedView.applying(toImage).standardized
+        let image = CIImage(cvPixelBuffer: frame.capturedImage)
+        let size = image.extent.size
+        let crop = CGRect(x: region.minX * size.width, y: (1 - region.maxY) * size.height,
+                          width: region.width * size.width, height: region.height * size.height)
+            .intersection(image.extent)
+        guard !crop.isEmpty, let cg = imageContext.createCGImage(image.cropped(to: crop).oriented(.right),
+                                                                 from: image.cropped(to: crop).oriented(.right).extent) else { return nil }
+        let upright = UIImage(cgImage: cg)
+        return DrawingCamera.straighten(upright) ?? upright
+    }
+
+    func chooseSidekick(_ creation: Creation) {
+        sidekick = creation
+        UserDefaults.standard.set(creation.id, forKey: "sidekick")
+        showSidekick(announce: started)
+    }
+
+    /// The sidekick follows the player on the recognized floor during gameplay.
+    private func showSidekick(announce: Bool) {
+        sidekickRig?.root.removeFromParent()
+        sidekickRig = nil
+        guard started, ![.scanning, .planning, .restoring, .ready].contains(phase),
+              let sidekick, let rig = try? HelperRig(creation: sidekick, placement: .pet) else { return }
+        rig.floorY = floorHeight
+        petAnchor.addChild(rig.root)
+        sidekickRig = rig
+        if announce, !speech.isSpeaking { speak(Workshop.arrival(sidekick.card), voice: sidekick.card.voice) }
+    }
+
+    /// The scanned floor's height, so the pet stands on it.
+    private var floorHeight: Float? {
+        let floors = roomContext?.surfaces.filter { $0.kind == .floor }.flatMap { $0.corners.compactMap { $0.count == 3 ? $0[1] : nil } }
+        return floors?.min()
+    }
+
+    func talkToSidekick() {
+        guard let sidekick else { return }
+        let lines = sidekick.card.lines.isEmpty ? [Workshop.arrival(sidekick.card)] : sidekick.card.lines
+        speak(lines[sidekickLine % lines.count], voice: sidekick.card.voice)
+        sidekickLine += 1
+        sidekickRig?.perform()
+    }
+
+    /// Puts a drawing to work on the current trap. `fresh` means Codex made it for this trap.
+    func deployHelper(_ creation: Creation, fresh: Bool = false) {
+        guard phase == .challenge, let questAnchor else { return }
+        let placement: HelperRig.Placement = creation.card.kind == .tool ? .hand : .beside
+        guard let rig = try? HelperRig(creation: creation, placement: placement) else {
+            challengeDrawing = .failed("Couldn't load that drawing's 3D model. Try another.")
+            return
+        }
+        helperRig?.root.removeFromParent()
+        (placement == .hand ? cameraAnchor : questAnchor).addChild(rig.root)
+        helperRig = rig
+        helper = creation
+        helperIsFresh = fresh
+        helperLine = 0
+        trapProgress = TrapProgress(needed: creation.card.clampedUses)
+        speak(Workshop.arrival(creation.card), voice: creation.card.voice)
+    }
+
+    /// One use of the helper on the trap: a swing, a lunge, or a pulse.
+    func useHelper() {
+        guard phase == .challenge, trackingReady, itemInReach, !suspended, !interrupted,
+              !drawingPresented, !themePresented, !connectionPresented, var progress = trapProgress,
+              let helper, let helperRig, let trapRig, let challenge, progress.use() else { return }
+        trapProgress = progress
+        helperRig.perform()
+        trapRig.hit()
+        UIImpactFeedbackGenerator(style: progress.cleared ? .heavy : .medium).impactOccurred()
+        guard progress.cleared else {
+            if helper.card.kind == .character, !speech.isSpeaking { speak(helper.card.verbButton, voice: helper.card.voice) }
+            return
+        }
+        trapRig.shatter()
+        keepsake?.isEnabled = true
+        keepsakeLift = 0
+        let line = helperIsFresh && !helper.card.success.isEmpty ? helper.card.success
+            : "\(helper.card.displayName.prefix(1).uppercased() + helper.card.displayName.dropFirst()) did it! \(challenge.cleared)"
+        speak(line, voice: helper.card.voice)
+        game.clearChallenge()
+        creatureAnimator?.react(.celebrate)
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if helperRig.placement == .hand {
+            // Tools go back in the inventory once the job's done.
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                guard let self, self.helperRig === helperRig else { return }
+                helperRig.root.removeFromParent()
+                self.helperRig = nil
+            }
+        }
+    }
+
+    func talkToHelper() {
+        guard let helper else { return }
+        let lines = helper.card.lines.isEmpty ? [Workshop.arrival(helper.card)] : helper.card.lines
+        speak(lines[helperLine % lines.count], voice: helper.card.voice)
+        helperLine += 1
+    }
+
+    /// A workshop outage must not prevent the existing pickup and character puzzle from continuing.
+    func skipDrawingChallenge() {
+        guard phase == .challenge else { return }
+        drawingTasks[.challenge]?.cancel()
+        drawingTasks[.challenge] = nil
+        challengeDrawing = .none
+        drawingPresented = false
+        helperRig?.root.removeFromParent()
+        helperRig = nil
+        helper = nil
+        trapProgress = nil
+        trapRig?.shatter()
+        keepsake?.isEnabled = true
+        keepsakeLift = 0
+        game.clearChallenge()
     }
 
     func collectKeepsake() {
@@ -763,33 +1072,45 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     func pet() {
-        guard [.revealed, .questing, .returning, .complete].contains(phase), trackingReady, inReach else { return }
+        guard [.revealed, .challenge, .questing, .returning, .complete].contains(phase), trackingReady, inReach else { return }
         guard creatureAnimator?.react(.pet) == true else { return }
         dialogue = friend.petReaction
         UIImpactFeedbackGenerator(style: .soft).impactOccurred()
     }
 
     func play() {
-        guard [.revealed, .questing, .returning, .complete].contains(phase), trackingReady, inReach,
+        guard [.revealed, .challenge, .questing, .returning, .complete].contains(phase), trackingReady, inReach,
               creatureAnimator?.react(.play) == true else { return }
         dialogue = friend.playReaction
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
+    /// Tap the friend to pet them, the trap to use your helper, or a drawn character to talk.
     @objc private func tapFriend(_ recognizer: UITapGestureRecognizer) {
-        guard let creature, var hit = arView.entity(at: recognizer.location(in: arView)) else { return }
-        while hit !== creature {
+        guard trackingReady, !suspended, !interrupted, !drawingPresented, !themePresented, !connectionPresented else { return }
+        guard var hit = arView.entity(at: recognizer.location(in: arView)) else { return }
+        while true {
+            if hit === creature { pet(); return }
+            if hit === trapRig?.root { useHelper(); return }
+            if hit === helperRig?.root { helperRig?.kind == .tool ? useHelper() : talkToHelper(); return }
+            if hit === sidekickRig?.root { talkToSidekick(); return }
             guard let parent = hit.parent else { return }
             hit = parent
         }
-        pet()
     }
-    private func speak(_ text: String) {
+    /// Friends use their own voice; drawings use the voice Codex picked for them.
+    private func speak(_ text: String, voice: DrawingCard.Voice? = nil) {
         dialogue = text
         speech.stopSpeaking(at: .immediate)
         let line = AVSpeechUtterance(string: text)
-        line.rate = friend == .pebblin ? 0.43 : 0.48
-        line.pitchMultiplier = friend == .glimlo ? 1.18 : 1.05
+        switch voice {
+        case .high?: line.rate = 0.5; line.pitchMultiplier = 1.45
+        case .low?: line.rate = 0.44; line.pitchMultiplier = 0.75
+        case .normal?: line.rate = 0.48; line.pitchMultiplier = 1.0
+        case nil:
+            line.rate = friend == .pebblin ? 0.43 : 0.48
+            line.pitchMultiplier = friend == .glimlo ? 1.18 : 1.05
+        }
         speech.speak(line)
     }
 
@@ -802,6 +1123,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         capture?.stop(pauseARSession: false)
         capture = nil
         speech.stopSpeaking(at: .immediate)
+        sidekickRig?.root.removeFromParent()
+        sidekickRig = nil
         if let anchor { arView.scene.removeAnchor(anchor) }
         if let worldAnchor { arView.session.remove(anchor: worldAnchor) }
         clearQuest()
@@ -848,16 +1171,35 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             creatureAnimator?.update(delta: delta, speaking: speech.isSpeaking,
                                      reducedMotion: UIAccessibility.isReduceMotionEnabled)
         }
+        let step = Float(min(delta, 0.1))
         if let keepsake {
-            keepsake.position.y = sin(Float(elapsed) * 2) * 0.025
+            // A freed item drifts down from wherever the trap held it.
+            let lift = keepsake.position.y - sin(Float(elapsed - delta) * 2) * 0.025
+            let eased = lift + (keepsakeLift - lift) * min(1, step * 3)
+            keepsake.position.y = sin(Float(elapsed) * 2) * 0.025 + eased
             keepsake.orientation = simd_quatf(angle: Float(elapsed) * 0.65, axis: [0, 1, 0])
         }
         if let questReward {
             questReward.position.y = 0.25 + (UIAccessibility.isReduceMotionEnabled ? 0 : sin(Float(elapsed) * 1.6) * 0.012)
         }
+        trapRig?.update(delta: step)
+        if trapRig?.finished == true {
+            trapRig?.root.removeFromParent()
+            trapRig = nil
+        }
+        if let camera = arView.session.currentFrame?.camera.transform, trackingReady {
+            helperRig?.update(delta: step, camera: camera)
+            sidekickRig?.update(delta: step, camera: camera)
+        }
+        if (sidekickDrawing.isWorking || challengeDrawing.isWorking), elapsed - lastWhimsy > 3.5 {
+            lastWhimsy = elapsed
+            whimsy += 1
+        }
         guard elapsed - lastHUDUpdate > 0.15 else { return }
         lastHUDUpdate = elapsed
         guard !suspended, !interrupted, !failed, let frame = arView.session.currentFrame else {
+            if interrupted { trackingMessage = "The camera was interrupted. Close other camera apps and come back." }
+            if failed { trackingMessage = "AR stopped. Use Scan again from the menu." }
             trackingReady = false
             jungle?.anchor.isEnabled = false
             _ = proximity.update(distance: .infinity, timestamp: elapsed, valid: false)
