@@ -18,6 +18,10 @@ PROVIDER_BUDGET_SECONDS = 55
 DEFAULT_MODEL = "gemini-3.6-flash"
 ATTEMPT_TIMEOUT = 25
 FALLBACK_CODES = {429, 500, 503}
+# Meta's Muse plans first when MUSE_API_KEY is set; Gemini is the fallback. A full room plan took
+# about 10 s in testing, so 30 s leaves room for Gemini inside the shared budget.
+MUSE_ENDPOINT = "https://api.meta.ai/v1/chat/completions"
+MUSE_TIMEOUT = 30
 FRIENDS = {
     "Mosskip": "a cheerful mint-green sprout courier carrying a seed satchel; curious and easily lost",
     "Glimlo": "a bashful peach lantern moth with petal wings; loves helping friends feel brave",
@@ -363,7 +367,47 @@ def make_request(candidates, photos, friend="Mosskip", context=None, quest_versi
     }
 
 
+def muse_request(request_body):
+    """The same prompt, snapshots, and JSON schema as the Gemini request, in Meta's chat format."""
+    content = []
+    for part in request_body["input"]:
+        if part["type"] == "text":
+            content.append({"type": "text", "text": part["text"]})
+        else:
+            content.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + part["data"]}})
+    return {"model": os.environ.get("MUSE_MODEL", "muse-spark-1.3"),
+            "messages": [{"role": "user", "content": content}],
+            "response_format": {"type": "json_schema", "json_schema": {
+                "name": "room_adventure", "schema": request_body["response_format"]["schema"]}},
+            "reasoning_effort": "low", "max_completion_tokens": 8192}
+
+
+def muse_text(response):
+    choices = response.get("choices") if isinstance(response, dict) else None
+    choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    message = choice.get("message") if isinstance(choice.get("message"), dict) else {}
+    text = message.get("content")
+    if choice.get("finish_reason") != "stop" or message.get("refusal") or not isinstance(text, str) or not text.strip():
+        raise ValueError("Muse didn't return a complete plan. Please retry.")
+    return text
+
+
+def muse_plan(key, request_body, timeout, candidates, context, friend, quest_version, report=None):
+    request = Request(MUSE_ENDPOINT, data=json.dumps(muse_request(request_body)).encode(),
+                      headers={"Content-Type": "application/json", "Authorization": "Bearer " + key}, method="POST")
+    if report:
+        report("sending_to_muse")
+    with urlopen(request, timeout=timeout) as response:
+        if report:
+            report("muse_responded", providerHTTPStatus=200)
+        return validate_plan_text(muse_text(json.load(response)), candidates, context, friend, quest_version)
+
+
 def parse_response(response, candidates, context=None, friend="Mosskip", quest_version=0):
+    return validate_plan_text(interaction_text(response), candidates, context, friend, quest_version)
+
+
+def interaction_text(response):
     if not isinstance(response, dict) or response.get("status") != "completed":
         raise ValueError("Gemini couldn't complete the placement. Please retry.")
     # The Interactions REST API returns model_output steps with text content.
@@ -379,7 +423,10 @@ def parse_response(response, candidates, context=None, friend="Mosskip", quest_v
             continue
         parts.extend(part["text"] for part in content if isinstance(part, dict)
                      and part.get("type") == "text" and isinstance(part.get("text"), str))
-    text = "".join(parts)
+    return "".join(parts)
+
+
+def validate_plan_text(text, candidates, context=None, friend="Mosskip", quest_version=0):
     try:
         decoded = json.loads(text)
         plan = validate_plan(decoded, candidates)
@@ -401,18 +448,33 @@ def generate_plan(body, report=None):
         report("scan_received", snapshotCount=len(photos), furnitureCount=len(candidates),
                surfaceCount=len(context["surfaces"]) if context else 0)
     key = os.environ.get("GEMINI_API_KEY")
-    if not key:
-        raise RuntimeError("Set GEMINI_API_KEY on the adventure server, then retry.")
+    muse_key = os.environ.get("MUSE_API_KEY")
+    if not key and not muse_key:
+        raise RuntimeError("Set MUSE_API_KEY or GEMINI_API_KEY on the adventure server, then retry.")
     request_body = make_request(candidates, photos, friend, context, quest_version)
+    deadline = time.monotonic() + PROVIDER_BUDGET_SECONDS
+    if muse_key:
+        try:
+            return muse_plan(muse_key, request_body, MUSE_TIMEOUT if key else PROVIDER_BUDGET_SECONDS,
+                             candidates, context, friend, quest_version, report)
+        except (HTTPError, TimeoutError, URLError, ValueError) as error:
+            if not key:
+                raise
+            if report:
+                report("falling_back", provider="muse",
+                       **({"providerHTTPStatus": error.code} if isinstance(error, HTTPError) else {}))
+            if isinstance(error, HTTPError):
+                error.close()
     models = plan_models()
     attempts = models if len(models) > 1 else models * MAX_PROVIDER_ATTEMPTS
-    deadline = time.monotonic() + PROVIDER_BUDGET_SECONDS
     for index, model in enumerate(attempts):
         last = index == len(attempts) - 1
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("Gemini request budget exhausted")
-        timeout = min(ATTEMPT_TIMEOUT, remaining) if len(models) > 1 and not last else remaining
+        # After a slow Muse attempt, keep a few seconds for each Gemini model still to come.
+        reserve = 8 * (len(attempts) - index - 1) if muse_key else 0
+        timeout = max(3, min(ATTEMPT_TIMEOUT, remaining - reserve)) if len(models) > 1 and not last else remaining
         request = Request(
             "https://generativelanguage.googleapis.com/v1beta/interactions",
             data=json.dumps({**request_body, "model": model}).encode(),
@@ -480,7 +542,9 @@ class Handler(BaseHTTPRequestHandler):
             with TRACE_LOCK:
                 receipt = dict(LAST_REQUEST) if LAST_REQUEST else None
             self.reply(200, {"status": "ready", "geminiConfigured": bool(os.environ.get("GEMINI_API_KEY")),
+                             "museConfigured": bool(os.environ.get("MUSE_API_KEY")),
                              "planningVersion": 3, "questVersion": 1, "drawings": True, "lastRequest": receipt,
+                             "planner": "muse" if os.environ.get("MUSE_API_KEY") else "gemini",
                              "model": plan_models()[0], "fallbackModels": plan_models()[1:]})
             return
         parts = self.path.strip("/").split("/")
@@ -489,6 +553,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, drawings.public_status(parts[1]))
             elif len(parts) == 3 and parts[0] == "drawings" and parts[2] == "model.usdz":
                 self.send_file(drawings.model_file(parts[1]), "model/vnd.usdz+zip")
+            elif len(parts) == 3 and parts[0] == "drawings" and parts[2] == "preview.png":
+                self.send_file(drawings.preview_file(parts[1]), "image/png")
             else:
                 self.reply(404, {"error": "Not found"})
         except KeyError:

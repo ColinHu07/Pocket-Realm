@@ -132,7 +132,7 @@ def render_preview(path="preview.png", resolution=384):
     scene = bpy.context.scene
     camera = bpy.data.objects.new("PreviewCamera", bpy.data.cameras.new("PreviewCamera"))
     scene.collection.objects.link(camera)
-    camera.location = (0.3, -0.36, 0.21)
+    camera.location = (0.27, -0.32, 0.19)
     direction = Vector((0, 0, 0)) - camera.location
     camera.rotation_euler = direction.to_track_quat("-Z", "Y").to_euler()
     scene.camera = camera
@@ -147,6 +147,10 @@ def render_preview(path="preview.png", resolution=384):
     world.use_nodes = True
     world.node_tree.nodes["Background"].inputs["Color"].default_value = (0.08, 0.1, 0.1, 1)
     scene.world = world
+    # Transparent background, so the render works as a sticker-style thumbnail in the app.
+    scene.render.film_transparent = True
+    scene.render.image_settings.file_format = "PNG"
+    scene.render.image_settings.color_mode = "RGBA"
     scene.render.engine = "CYCLES"
     scene.cycles.device = "CPU"
     scene.cycles.samples = 24

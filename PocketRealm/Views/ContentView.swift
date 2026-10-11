@@ -781,7 +781,10 @@ private struct ConnectionSettings: View {
                         }
                         .disabled(experience.testingConnection || experience.requesting)
                         .accessibilityIdentifier("planningProviderPicker")
-                        if experience.provider == .muse {
+                        if experience.provider == .server {
+                            Text("Your Pocket Realm server plans rooms with Meta's Muse Spark, with Gemini as a backup. The keys stay on the server; nothing is stored on this iPhone.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        } else if experience.provider == .muse {
                             Picker("Model", selection: Binding(get: { experience.museModel }, set: experience.selectMuseModel)) {
                                 ForEach(MuseModel.allCases) { model in Text(model.name).tag(model) }
                             }.accessibilityIdentifier("museModelPicker")
@@ -793,6 +796,20 @@ private struct ConnectionSettings: View {
                             }.accessibilityIdentifier("geminiModelPicker")
                         }
                     }.disabled(experience.testingConnection || experience.requesting)
+                    if experience.provider == .server {
+                        Section("Server") {
+                            Button {
+                                experience.testAPIKey()
+                            } label: {
+                                Label(experience.testingConnection ? "Checking server…" : "Check server", systemImage: "network")
+                                    .frame(maxWidth: .infinity, minHeight: 30)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(experience.testingConnection || experience.requesting || !experience.addressIsValid)
+                            .accessibilityIdentifier("testAIConnection")
+                            Text("Uses the server address under Drawing workshop below.").font(.footnote).foregroundStyle(.secondary)
+                        }
+                    } else {
                     Section("\(experience.provider.name) API key") {
                         SecureField(experience.hasAPIKey ? "Paste a replacement API key" : "Paste \(experience.provider.name) API key", text: $apiKeyEntry)
                             .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.asciiCapable)
@@ -835,8 +852,11 @@ private struct ConnectionSettings: View {
                         Text("Testing is optional. Each test makes one request to \(experience.modelName). Saving a key or changing models makes no request.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
+                    }
                     Section("What gets sent") {
-                        Text("After your scan, this iPhone sends measured walls, openings, furniture, and up to six room snapshots directly to \(experience.provider.company) to plan your room and adventure.")
+                        Text(experience.provider == .server
+                             ? "After your scan, this iPhone sends measured walls, openings, furniture, and up to six room snapshots to your Pocket Realm server, which asks Meta's Muse (or Google's Gemini as a backup) to plan your room and adventure."
+                             : "After your scan, this iPhone sends measured walls, openings, furniture, and up to six room snapshots directly to \(experience.provider.company) to plan your room and adventure.")
                         Text("Use saved room works without another AI call. During play, Adventure options → Replay this room reuses the current scan, even when you try another friend. Your saved room and key stay on this iPhone.")
                     }.font(.footnote)
                     Section("Drawing workshop") {
@@ -887,6 +907,9 @@ private struct ConnectionSettings: View {
             case .needsKey:
                 Label("Not connected yet", systemImage: "key.fill").font(.headline)
                 Text("Paste your \(experience.provider.name) API key below. You can save it without making a test request.").font(.subheadline)
+            case .saved where experience.provider == .server:
+                Label("Using your server", systemImage: "server.rack").font(.headline)
+                Text("Room planning goes through your Pocket Realm server. No key needed on this iPhone. You can scan now.").font(.subheadline)
             case .saved:
                 Label("Key saved", systemImage: "key.fill").font(.headline)
                 Text("Selected: \(experience.modelName). You can scan now, or optionally test the connection. Saved rooms need no connection.").font(.subheadline)

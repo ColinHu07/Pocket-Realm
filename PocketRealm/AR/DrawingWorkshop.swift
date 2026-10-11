@@ -43,6 +43,16 @@ enum DrawingWorkshop {
         return url
     }
 
+    /// The server's render of the finished model; nil if it isn't available.
+    static func preview(address: String, id: String) async -> Data? {
+        guard var request = try? URLRequest(url: AdventureClient.endpoint(address, path: "drawings/\(id)/preview.png")) else { return nil }
+        request.timeoutInterval = 15
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              data.starts(with: [0x89, 0x50, 0x4E, 0x47]), UIImage(data: data) != nil else { return nil }
+        return data
+    }
+
     private static func decode(_ result: (Data, URLResponse)) throws -> DrawingStatus {
         let (data, response) = result
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {

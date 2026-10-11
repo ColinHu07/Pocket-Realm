@@ -24,7 +24,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     @Published private(set) var proximity = ProximityGate()
     @Published private(set) var selectedCategory = ""
     @Published private(set) var requesting = false
-    @Published private(set) var provider = PlanningProvider.saved(UserDefaults.standard.string(forKey: "planningProvider"))
+    @Published private(set) var provider = ARExperience.initialProvider()
     @Published private(set) var museModel = MuseModel(rawValue: UserDefaults.standard.string(forKey: "museModel") ?? "") ?? .spark13
     @Published private(set) var hasAPIKey = false
     @Published private(set) var geminiModel = GeminiModel(rawValue: UserDefaults.standard.string(forKey: "geminiModel") ?? "") ?? .flash38
@@ -144,7 +144,21 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     var phase: Adventure.Phase { game.phase }
     var testingConnection: Bool { connectionState.isChecking }
     var planningClient: PlanningClient {
-        PlanningClient(provider: provider, muse: MuseClient(model: museModel), gemini: GeminiClient(model: geminiModel))
+        let address = serverAddress
+        return PlanningClient(provider: provider, muse: MuseClient(model: museModel), gemini: GeminiClient(model: geminiModel),
+            server: ServerPlanning(
+                plan: { try await AdventureClient.plan(address: address, candidates: $0, photos: $1, friend: $2, context: $3) },
+                test: { try await AdventureClient.checkServer(address: address) }))
+    }
+
+    /// AI keys now live on the Pocket Realm server, so existing installs switch to it once.
+    private static func initialProvider() -> PlanningProvider {
+        let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "plannerMovedToServer") {
+            defaults.set(true, forKey: "plannerMovedToServer")
+            defaults.set(PlanningProvider.server.rawValue, forKey: "planningProvider")
+        }
+        return .saved(defaults.string(forKey: "planningProvider"))
     }
     var modelName: String { planningClient.modelName }
     var inReach: Bool { anchor?.isAnchored == true && (distance ?? .infinity) <= 2 }
@@ -168,6 +182,20 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     var questRequest: String {
         guard let challenge else { return friend.questRequest }
         return "\(challenge.cleared) Pick up the \(friend.itemName) and bring it back to \(friend.name)."
+    }
+
+    /// Creations made before previews existed get their 3D render while the server still has it.
+    private func backfillPreviews() async {
+        let address = serverAddress
+        guard addressIsValid else { return }
+        var found = false
+        for creation in inventory where !creation.hasPreview {
+            if let png = await DrawingWorkshop.preview(address: address, id: creation.id) {
+                Inventory.savePreview(png, for: creation)
+                found = true
+            }
+        }
+        if found { inventory = Inventory.load() }
     }
 
     override init() {
@@ -194,6 +222,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             Task { @MainActor [weak self] in self?.tick(event.deltaTime) }
         }
+        Task { await backfillPreviews() }
     }
 
     func start() {
@@ -842,7 +871,9 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                         let model = try await DrawingWorkshop.download(address: address, id: status.id)
                         guard !Task.isCancelled, let self else { return }
                         let card = status.card ?? DrawingCard(name: status.name ?? "drawing", kind: .object)
-                        self.inventory = try Inventory.add(id: status.id, card: card, model: model, photo: image, to: self.inventory)
+                        let preview = await DrawingWorkshop.preview(address: address, id: status.id)
+                        self.inventory = try Inventory.add(id: status.id, card: card, model: model, photo: image,
+                                                           preview: preview, to: self.inventory)
                         self.setDrawing(.ready(name: card.name), for: purpose)
                         if let creation = self.inventory.first { self.arrived(creation, for: purpose) }
                         return
@@ -946,7 +977,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     /// Puts a drawing to work on the current trap. `fresh` means Codex made it for this trap.
     func deployHelper(_ creation: Creation, fresh: Bool = false) {
         guard phase == .challenge, let questAnchor else { return }
-        let placement: HelperRig.Placement = creation.card.kind == .tool ? .hand : .beside
+        // Every drawing lives in the room beside the trap; tools swing into it from there.
+        let placement: HelperRig.Placement = .beside
         guard let rig = try? HelperRig(creation: creation, placement: placement) else {
             challengeDrawing = .failed("Couldn't load that drawing's 3D model. Try another.")
             return
@@ -983,7 +1015,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         game.clearChallenge()
         creatureAnimator?.react(.celebrate)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if helperRig.placement == .hand {
+        if helperRig.kind == .tool {
             // Tools go back in the inventory once the job's done.
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)

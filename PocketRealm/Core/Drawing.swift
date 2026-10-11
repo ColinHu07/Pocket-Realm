@@ -3,6 +3,7 @@ import Foundation
 /// Planning and drawing generation are independent server capabilities.
 struct AdventureServerHealth: Decodable {
     let geminiConfigured: Bool?
+    var museConfigured: Bool? = nil
     let drawings: Bool?
 
     func validate(drawingsRequired: Bool) throws {
@@ -10,8 +11,8 @@ struct AdventureServerHealth: Decodable {
             guard drawings == true else {
                 throw PlanError.server("This server doesn't have a drawing workshop. Check the workshop address in Connection settings.")
             }
-        } else if geminiConfigured != true {
-            throw PlanError.server("The server is running but has no Gemini key. Add GEMINI_API_KEY to server/.env and restart it.")
+        } else if geminiConfigured != true && museConfigured != true {
+            throw PlanError.server("The server is running but has no AI key. Add MUSE_API_KEY or GEMINI_API_KEY to server/.env and restart it.")
         }
     }
 }

@@ -9,7 +9,10 @@ struct Creation: Codable, Identifiable, Equatable {
 
     var modelURL: URL { Inventory.folder.appendingPathComponent("\(id).usdz") }
     var photoURL: URL { Inventory.folder.appendingPathComponent("\(id).jpg") }
-    var photo: UIImage? { UIImage(contentsOfFile: photoURL.path) }
+    /// Render of the 3D model from the server; preferred over the paper photo.
+    var previewURL: URL { Inventory.folder.appendingPathComponent("\(id).png") }
+    var hasPreview: Bool { FileManager.default.fileExists(atPath: previewURL.path) }
+    var photo: UIImage? { UIImage(contentsOfFile: previewURL.path) ?? UIImage(contentsOfFile: photoURL.path) }
 }
 
 /// Everything the player has drawn, kept on the phone so it can be reused in later quests.
@@ -26,8 +29,12 @@ enum Inventory {
         return items.filter { FileManager.default.fileExists(atPath: $0.modelURL.path) }
     }
 
+    static func savePreview(_ png: Data, for creation: Creation) {
+        try? png.write(to: creation.previewURL, options: .atomic)
+    }
+
     /// Moves the downloaded model into the inventory and records it, newest first.
-    static func add(id: String, card: DrawingCard, model: URL, photo: UIImage?, to items: [Creation]) throws -> [Creation] {
+    static func add(id: String, card: DrawingCard, model: URL, photo: UIImage?, preview: Data? = nil, to items: [Creation]) throws -> [Creation] {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let creation = Creation(id: id, card: card, made: Date())
         try? FileManager.default.removeItem(at: creation.modelURL)
@@ -35,6 +42,7 @@ enum Inventory {
         if let photo, let jpeg = DrawingWorkshop.jpeg(from: photo, maxDimension: 240) {
             try? jpeg.write(to: creation.photoURL, options: .atomic)
         }
+        if let preview { savePreview(preview, for: creation) }
         let updated = [creation] + items.filter { $0.id != id }
         try JSONEncoder().encode(updated).write(to: listURL, options: .atomic)
         return updated

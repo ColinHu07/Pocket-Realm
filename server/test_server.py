@@ -317,6 +317,51 @@ class FallbackTests(unittest.TestCase):
         self.assertEqual(provider.call_count, 2)
 
 
+class MuseTests(unittest.TestCase):
+    def setUp(self):
+        fixture = copy.deepcopy(ROOM_FIXTURE)
+        self.scan, self.plan = fixture["scan"], fixture["plan"]
+
+    def muse_reply(self, plan=None, finish="stop"):
+        return io.BytesIO(json.dumps({"choices": [{"finish_reason": finish, "message": {
+            "role": "assistant", "content": json.dumps(plan or self.plan)}}]}).encode())
+
+    @patch.dict(os.environ, {"MUSE_API_KEY": "muse-test-key", "GEMINI_API_KEY": "g", "GEMINI_MODEL": "big-flash"})
+    def test_muse_plans_first_with_the_same_prompt_and_schema(self):
+        with patch("server.urlopen", return_value=self.muse_reply()) as provider:
+            self.assertEqual(generate_plan(copy.deepcopy(self.scan)), self.plan)
+        request = provider.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.meta.ai/v1/chat/completions")
+        self.assertEqual(request.get_header("Authorization"), "Bearer muse-test-key")
+        payload = json.loads(request.data)
+        self.assertEqual(payload["model"], "muse-spark-1.3")
+        self.assertIn("room", payload["response_format"]["json_schema"]["schema"]["required"])
+        kinds = [part["type"] for part in payload["messages"][0]["content"]]
+        self.assertEqual(kinds[0], "text")
+        self.assertIn("image_url", kinds)
+        self.assertNotIn("muse-test-key", request.data.decode())
+
+    @patch.dict(os.environ, {"MUSE_API_KEY": "m", "GEMINI_API_KEY": "g", "GEMINI_MODEL": "big-flash",
+                             "GEMINI_FALLBACK_MODELS": "lite"})
+    def test_muse_failures_fall_back_to_gemini(self):
+        busy = HTTPError("https://api.meta.ai", 429, "Quota", {}, io.BytesIO(b"{}"))
+        for failure in (busy, TimeoutError(), self.muse_reply(finish="length")):
+            gemini = io.BytesIO(json.dumps(response(self.plan)).encode())
+            effects = [failure, gemini] if isinstance(failure, Exception) else [failure, gemini]
+            with self.subTest(failure=type(failure).__name__), patch("server.urlopen", side_effect=effects) as provider:
+                self.assertEqual(generate_plan(copy.deepcopy(self.scan)), self.plan)
+            self.assertIn("generativelanguage.googleapis.com", provider.call_args_list[1].args[0].full_url)
+            self.assertLessEqual(provider.call_args_list[0].kwargs["timeout"], 30)
+
+    @patch.dict(os.environ, {"MUSE_API_KEY": "m"}, clear=True)
+    def test_muse_alone_needs_no_gemini_key_and_surfaces_its_errors(self):
+        with patch("server.urlopen", return_value=self.muse_reply()):
+            self.assertEqual(generate_plan(copy.deepcopy(self.scan)), self.plan)
+        with patch("server.urlopen", side_effect=HTTPError("https://api.meta.ai", 401, "Bad key", {}, io.BytesIO(b"{}"))), \
+                self.assertRaises(HTTPError):
+            generate_plan(copy.deepcopy(self.scan))
+
+
 class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

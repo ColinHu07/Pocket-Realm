@@ -50,18 +50,21 @@ enum MuseKeyStore {
 enum PlannerKeyStore {
     static func read(for provider: PlanningProvider) throws -> String? {
         switch provider {
+        case .server: return ""  // The server holds its own keys.
         case .muse: return try MuseKeyStore.read()
         case .gemini: return try GeminiKeyStore.read()
         }
     }
     static func save(_ key: String, for provider: PlanningProvider) throws {
         switch provider {
+        case .server: break
         case .muse: try MuseKeyStore.save(key)
         case .gemini: try GeminiKeyStore.save(key)
         }
     }
     static func remove(for provider: PlanningProvider) throws {
         switch provider {
+        case .server: break
         case .muse: try MuseKeyStore.remove()
         case .gemini: try GeminiKeyStore.remove()
         }

@@ -266,7 +266,7 @@ final class HelperRig {
         switch placement {
         case .hand: size = 0.13
         case .pet: size = creation.card.kind == .character ? 0.26 : 0.2
-        case .beside: size = creation.card.kind == .character ? 0.3 : 0.24
+        case .beside: size = creation.card.kind == .character ? 0.3 : creation.card.kind == .tool ? 0.22 : 0.24
         }
         let scale = size / longest
         model.scale = .one * scale
@@ -287,7 +287,12 @@ final class HelperRig {
             break
         case .beside:
             // To the player's left of the trap, a little closer to them.
-            root.position = creation.card.kind == .character ? [-0.36, -0.02, 0.12] : [0.34, -0.04, 0.1]
+            switch creation.card.kind {
+            case .character: root.position = [-0.36, -0.02, 0.12]
+            // Tools hover above and in front of the trap, ready to come down on it.
+            case .tool: root.position = [0.22, 0.2, 0.22]
+            case .object: root.position = [0.34, -0.04, 0.1]
+            }
         }
     }
 
@@ -313,6 +318,10 @@ final class HelperRig {
             tilt = simd_quatf(angle: walking ? sin(time * 9) * 0.12 : 0, axis: [0, 0, 1])
         case .beside:
             if kind == .object { offset.y = max(0, (1 - arrival) * 0.6) }
+            else if kind == .tool {
+                offset.y = sin(time * 2) * 0.015
+                tilt = simd_quatf(angle: 0.35, axis: [0, 0, 1])
+            }
             else { offset.y = abs(sin(time * 3)) * 0.02 }
         }
         if let elapsed = action {
@@ -322,6 +331,10 @@ final class HelperRig {
             case .hand:
                 tilt = simd_quatf(angle: -1.1 * swing, axis: [1, 0, 0]) * tilt
                 offset.z -= 0.07 * swing
+            case .beside where kind == .tool:
+                // Wind up, then swing down into the trap and spring back.
+                offset += -root.position * 0.8 * swing
+                tilt = simd_quatf(angle: -1.3 * swing, axis: [1, 0, 0]) * simd_quatf(angle: 0.35, axis: [0, 0, 1])
             case .beside:
                 // Lunge toward the trap at the anchor's origin, then hop back.
                 offset += -root.position * 0.55 * swing

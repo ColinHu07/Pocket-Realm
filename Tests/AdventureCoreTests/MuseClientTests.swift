@@ -124,13 +124,16 @@ final class MuseClientTests: XCTestCase {
         }
     }
 
-    func testProviderSelectionRoutesTheCompletePlanAndDefaultsToMuse() async throws {
-        XCTAssertEqual(PlanningProvider.saved(nil), .muse)
-        XCTAssertEqual(PlanningProvider.saved("obsolete"), .muse)
+    func testProviderSelectionRoutesTheCompletePlanAndDefaultsToTheServer() async throws {
+        // The server holds the Muse and Gemini keys, so it's the default; direct providers stay selectable.
+        XCTAssertEqual(PlanningProvider.saved(nil), .server)
+        XCTAssertEqual(PlanningProvider.saved("obsolete"), .server)
+        XCTAssertEqual(PlanningProvider.saved("muse"), .muse)
         XCTAssertEqual(PlanningProvider.saved("gemini"), .gemini)
+        XCTAssertFalse(PlanningProvider.server.needsKey)
         let f = try fixture()
         for provider in PlanningProvider.allCases {
-            var museCalls = 0, geminiCalls = 0
+            var museCalls = 0, geminiCalls = 0, serverCalls = 0
             let text = String(decoding: try JSONEncoder().encode(f.plan), as: UTF8.self)
             let museReply = try response(text)
             let geminiReply = try JSONSerialization.data(withJSONObject: ["status": "completed", "steps": [
@@ -142,12 +145,13 @@ final class MuseClientTests: XCTestCase {
             }, gemini: GeminiClient { request in
                 geminiCalls += 1
                 return (geminiReply, HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
-            })
+            }, server: ServerPlanning(plan: { _, _, _, _ in serverCalls += 1; return f.plan }, test: nil))
             let result = try await planner.plan(key: "test", candidates: f.scan.candidates, photos: f.scan.photos,
                 friend: .mosskip, context: f.scan.roomContext)
             XCTAssertEqual(result.room?.summary, f.plan.room?.summary)
             XCTAssertEqual(museCalls, provider == .muse ? 1 : 0)
             XCTAssertEqual(geminiCalls, provider == .gemini ? 1 : 0)
+            XCTAssertEqual(serverCalls, provider == .server ? 1 : 0)
         }
     }
 
