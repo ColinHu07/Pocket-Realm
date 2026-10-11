@@ -120,4 +120,49 @@ final class SurfacePlacementTests: XCTestCase {
         XCTAssertFalse(SurfacePlacement.hasRoom(at: [0,1,0], surfaces: [wall], obstacles: []))
         XCTAssertTrue(SurfacePlacement.hasRoom(at: [0,-1,0], surfaces: [wall], obstacles: []))
     }
+
+    func testSavedFloorSupportSurvivesRestoreViewBehindFurniture() throws {
+        let chair = object(center: [0, -0.6, 0])
+        let screen = DecorationVolume(inverse: simd_inverse(object(center: [0, 0, 2])), half: [3, 1.5, 0.15])
+        let saved = try XCTUnwrap(SurfacePlacement.transform(category: "chair", dimensions: [1, 0.8, 1],
+            object: chair, observer: [0, 0.5, 1.5], surfaces: [floor()], obstacles: [screen]))
+        let point = SIMD3(saved.columns.3.x, saved.columns.3.y, saved.columns.3.z)
+        let facing = SIMD3(saved.columns.2.x, saved.columns.2.y, saved.columns.2.z)
+        var restoreView = point + facing * 2
+        restoreView.y = 0.5
+        XCTAssertNil(SurfacePlacement.transform(category: "chair", dimensions: [1, 0.8, 1],
+            object: chair, observer: restoreView, surfaces: [floor()], obstacles: [screen]))
+        let restored = SurfacePlacement.transform(category: "chair", dimensions: [1, 0.8, 1],
+            object: chair, observer: restoreView, surfaces: [floor()], obstacles: [screen], preserving: saved)
+        XCTAssertEqual(restored, saved)
+    }
+
+    func testSavedTabletopIsPreservedButFloatingAndObstructedPlacementsAreRebuilt() throws {
+        let table = object(center: [0, -0.6, 0])
+        let saved = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [1, 0.8, 1],
+            object: table, observer: [0, 0.5, 2], surfaces: [floor()]))
+        let restored = SurfacePlacement.transform(category: "table", dimensions: [1, 0.8, 1],
+            object: table, observer: [0, 0.5, -2], surfaces: [floor()], preserving: saved)
+        XCTAssertEqual(restored, saved)
+        var floating = saved
+        floating.columns.3.y += 0.25
+        let rebuilt = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [1, 0.8, 1],
+            object: table, observer: [0, 0.5, 2], surfaces: [floor()], preserving: floating))
+        XCTAssertEqual(rebuilt.columns.3, saved.columns.3)
+        let shelf = DecorationVolume(inverse: simd_inverse(object(center: [0, 0.3, 0])), half: [0.6, 0.08, 0.6])
+        let relocated = try XCTUnwrap(SurfacePlacement.transform(category: "table", dimensions: [1, 0.8, 1],
+            object: table, observer: [0, 0.5, 2], surfaces: [floor()], obstacles: [shelf], preserving: saved))
+        XCTAssertEqual(relocated.columns.3.y, -1, accuracy: 0.001)
+        XCTAssertNotEqual(relocated.columns.3, saved.columns.3)
+    }
+
+    func testSavedPlacementStillRequiresMeasuredSupportAndClearance() {
+        let chair = object(center: [0, -0.6, 0])
+        let saved = object(center: [0, -1, 0.94])
+        XCTAssertNil(SurfacePlacement.transform(category: "chair", dimensions: [1, 0.8, 1],
+            object: chair, observer: [0, 0.5, 2], surfaces: [], preserving: saved))
+        let obstruction = DecorationVolume(inverse: simd_inverse(object(center: [0, 0, 0])), half: [3, 2, 3])
+        XCTAssertNil(SurfacePlacement.transform(category: "chair", dimensions: [1, 0.8, 1],
+            object: chair, observer: [0, 0.5, 2], surfaces: [floor()], obstacles: [obstruction], preserving: saved))
+    }
 }

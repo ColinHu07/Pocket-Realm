@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+ EE1000000000000000000003 = {isa = PBXBuildFile; fileRef = EE2000000000000000000003; };
+ EE1000000000000000000002 = {isa = PBXBuildFile; fileRef = EE2000000000000000000002; };
+ EE1000000000000000000001 = {isa = PBXBuildFile; fileRef = EE2000000000000000000001; };
+ EE0000000000000000000001 = {isa = PBXBuildFile; productRef = EE0000000000000000000002; };
+ EE0000000000000000000003 = {isa = PBXBuildFile; fileRef = EE0000000000000000000004; };
         BE0000000000000000000001 = {isa = PBXBuildFile; fileRef = BE0000000000000000000002; };
         BD0000000000000000000007 = {isa = PBXBuildFile; fileRef = BD0000000000000000000008; };
         BD0000000000000000000005 = {isa = PBXBuildFile; fileRef = BD0000000000000000000006; };
@@ -46,6 +51,10 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+ EE2000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = text; path = PocketRealm/Resources/CMUDict-LICENSE.txt; sourceTree = SOURCE_ROOT; };
+ EE2000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RhymeWords.swift; sourceTree = SOURCE_ROOT; };
+ EE2000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/PoetryQuest.swift; sourceTree = SOURCE_ROOT; };
+ EE0000000000000000000004 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/QuestVoice.swift; sourceTree = SOURCE_ROOT; };
         BE0000000000000000000002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/FriendAttention.swift; sourceTree = SOURCE_ROOT; };
         BD0000000000000000000008 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/AR/MuseKeyStore.swift; sourceTree = SOURCE_ROOT; };
         BD0000000000000000000006 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PocketRealm/Core/RoomPlanRequest.swift; sourceTree = SOURCE_ROOT; };
@@ -89,7 +98,7 @@
 		7561BFB015D8F536760CB671 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
+			files = (EE0000000000000000000001,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -98,7 +107,7 @@
 /* Begin PBXGroup section */
 		B28B7AF69320201D1CF206EB = {
 			isa = PBXGroup;
-			children = (
+			children = (EE0000000000000000000004, EE2000000000000000000003, EE2000000000000000000002, EE2000000000000000000001,
                 BA0000000000000000000002,
                 BE0000000000000000000002,
                 BD0000000000000000000002,
@@ -162,7 +171,8 @@
 			);
 			dependencies = (
 			);
-			name = PocketRealm;
+			packageProductDependencies = (EE0000000000000000000002);
+            name = PocketRealm;
 			productName = PocketRealm;
 			productReference = 38A007151ABE87CC01A5B6E9 /* PocketRealm.app */;
 			productType = "com.apple.product-type.application";
@@ -187,6 +197,7 @@
 			productRefGroup = FBDC4F23F93125BBEEAE800C /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
+            packageReferences = (EE0000000000000000000005);
 			targets = (
 				0E8A3AD980EC179856012B7E /* PocketRealm */,
 			);
@@ -197,7 +208,7 @@
 		0189424A5A60FED329FA868E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
+			files = (EE1000000000000000000003,
                 F40000000000000000000003,
                 F50000000000000000000001,
                 C10000000000000000000003,
@@ -211,7 +222,7 @@
 		BCE16DD0260827ECF338C787 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (
+			files = (EE1000000000000000000002, EE1000000000000000000001, EE0000000000000000000003,
                 BA0000000000000000000001,
                 BE0000000000000000000001,
                 BD0000000000000000000001,
@@ -332,6 +343,14 @@
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+ EE0000000000000000000005 = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/elevenlabs/elevenlabs-swift-sdk.git"; requirement = {kind = exactVersion; version = 3.4.0; }; };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+ EE0000000000000000000002 = {isa = XCSwiftPackageProductDependency; package = EE0000000000000000000005; productName = ElevenLabs; };
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCConfigurationList section */
 		862894B703A6DEDF96A9DD6C /* Build configuration list for PBXProject "PocketRealm" */ = {

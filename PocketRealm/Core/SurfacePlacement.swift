@@ -12,7 +12,7 @@ enum SurfacePlacement {
 
     static func transform(category: String, dimensions: SIMD3<Float>, object: simd_float4x4,
                           observer: SIMD3<Float>, surfaces: [RoomSurfaceContext],
-                          obstacles: [DecorationVolume] = []) -> simd_float4x4? {
+                          obstacles: [DecorationVolume] = [], preserving previous: simd_float4x4? = nil) -> simd_float4x4? {
         guard [dimensions.x, dimensions.y, dimensions.z].allSatisfy({ $0.isFinite && $0 > 0 }),
               [observer.x, observer.y, observer.z].allSatisfy(\.isFinite),
               (0..<4).allSatisfy({ column in (0..<4).allSatisfy { object[column][$0].isFinite } }),
@@ -30,6 +30,7 @@ enum SurfacePlacement {
         var points: [SIMD3<Float>] = []
         let bottom = world([0, -half.y, 0])
         let top = world([0, half.y, 0])
+        var tabletop: SIMD3<Float>?
         // Object height alone mistakes short wall-mounted cabinets for low furniture.
         // Require a measured floor under the object and an accessible top above it.
         if (category == "table" || category == "storage"),
@@ -38,8 +39,22 @@ enum SurfacePlacement {
            top.y - floor <= 1.15, top.y - floor >= 0.25 {
             // The centre also supports round/elliptical tables; a rectangle's inset
             // corners do not necessarily lie on their actual tabletop.
-            points.append(top)
+            tabletop = top
         }
+        // A saved support already passed the scan's visibility check. Re-running
+        // that search from an invented camera can hide a perfectly usable spot.
+        // Keep it only while measured support and whole-body clearance still hold.
+        if let previous,
+           (0..<4).allSatisfy({ column in (0..<4).allSatisfy { previous[column][$0].isFinite } }),
+           previous.columns.1.y > 0.98, abs(simd_determinant(previous) - 1) < 0.001 {
+            let point = SIMD3(previous.columns.3.x, previous.columns.3.y, previous.columns.3.z)
+            let onFloor = floorHeight(at: point, surfaces: surfaces).map { abs($0 - point.y) <= supportClearance } ?? false
+            let onTable = tabletop.map { simd_distance($0, point) <= supportClearance } ?? false
+            if (onFloor || onTable) && hasRoom(at: point, surfaces: surfaces, obstacles: furniture) {
+                return previous
+            }
+        }
+        if let tabletop { points.append(tabletop) }
         // A bounding-box top can be a chair back, headboard, or upper cabinet.
         // Search the observed side for clear floor, including below mounted storage.
         for extra: Float in [0, 0.10, 0.20, 0.30, 0.40, 0.60] {

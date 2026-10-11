@@ -8,6 +8,26 @@ import SwiftUI
 
 @MainActor
 final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCaptureSessionDelegate {
+    let questVoice = QuestVoice()
+    let narrator = QuestNarrator()
+    @Published var questPoetry = false
+    @Published var questVoicePresented = false
+
+    func preparePoetryQuest() {
+        prepareQuestVoice()
+        questPoetry = true
+    }
+
+    func prepareQuestVoice() {
+        questPoetry = false
+        speech.stopSpeaking(at: .immediate); narrator.stop()
+        questVoicePresented = true
+    }
+
+    var voiceQuestContext: String {
+        "Quest: \(friend.questTitle). Step: \(phase). Request: \(questRequest). Item clue: near the \(questCategory). Puzzle instructions: \(game.challenge?.blueprint.instructions ?? "Not started"). Puzzle feedback: \(game.challenge?.feedback ?? "None"). Latest game dialogue: \(dialogue)."
+    }
+
     @Published private(set) var started = false
     @Published private(set) var game = Adventure()
     @Published private(set) var trackingReady = false
@@ -155,7 +175,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         started && replayRoom != nil && roomContext != nil && themeRoom != nil &&
             ![.scanning, .planning, .restoring].contains(phase) && !requesting && !failed
     }
-    var challengeAvailable: Bool { trackingReady && inReach && challengePanelVisible && !suspended && !interrupted && !themePresented && !connectionPresented && !drawingPresented }
+    var challengeAvailable: Bool { trackingReady && inReach && challengePanelVisible && !suspended && !interrupted && !themePresented && !connectionPresented && !drawingPresented && !questVoicePresented }
 
     func setChallengePanelVisible(_ visible: Bool) {
         guard challengePanelVisible != visible else { return }
@@ -235,7 +255,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         capture?.delegate = nil
         capture?.stop(pauseARSession: false)
         capture = nil
-        speech.stopSpeaking(at: .immediate)
+        speech.stopSpeaking(at: .immediate); narrator.stop()
         sidekickRig?.root.removeFromParent()
         sidekickRig = nil
         if let anchor { arView.scene.removeAnchor(anchor) }
@@ -295,8 +315,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                       map.anchors.contains(where: { $0.identifier == snapshot.referenceAnchorID }) else { throw SavedRoomError.invalidData }
                 let context = ThemeFactory.context(for: room)
                 let observer = SIMD3(snapshot.observer[0], snapshot.observer[1], snapshot.observer[2])
-                // Rebuild support points from saved geometry, including rooms saved
-                // by versions that intentionally placed friends beside furniture in midair.
+                // Preserve supported saved placements; rebuild legacy floating or
+                // obstructed ones from the measured geometry only when needed.
                 var transforms: [String: simd_float4x4] = [:]
                 var restoredCandidates: [RoomCandidate] = []
                 for candidate in snapshot.candidates {
@@ -307,7 +327,8 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                     var placementObserver = position(previous) + facing * 2
                     placementObserver.y = observer.y
                     guard let object = room.objects.first(where: { $0.identifier.uuidString == candidate.id }),
-                          let transform = placement(for: object, in: room, observer: placementObserver, context: context) else { continue }
+                          let transform = placement(for: object, in: room, observer: placementObserver, context: context,
+                                                    preserving: previous) else { continue }
                     transforms[candidate.id] = transform
                     let point = position(transform)
                     restoredCandidates.append(RoomCandidate(id: candidate.id, category: candidate.category,
@@ -407,12 +428,13 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     func suspend() {
+        questVoice.stop()
         guard started else { return }
         suspended = true
         trackingReady = false
         game.advanceChallenge(delta: 0, available: false)
         _ = proximity.update(distance: .infinity, timestamp: elapsed, valid: false)
-        speech.stopSpeaking(at: .immediate)
+        speech.stopSpeaking(at: .immediate); narrator.stop()
         if phase == .scanning {
             scanNeedsRestart = true
             capture?.delegate = nil
@@ -480,13 +502,13 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
 
     private func placement(for object: CapturedRoom.Object, in room: CapturedRoom, observer: SIMD3<Float>,
-                           context: RoomScanContext) -> simd_float4x4? {
+                           context: RoomScanContext, preserving previous: simd_float4x4? = nil) -> simd_float4x4? {
         let obstacles = room.objects.filter { $0.identifier != object.identifier }.map {
             DecorationVolume(inverse: simd_inverse($0.transform), half: $0.dimensions / 2)
         }
         return SurfacePlacement.transform(category: String(describing: object.category),
             dimensions: object.dimensions, object: object.transform, observer: observer,
-            surfaces: context.surfaces, obstacles: obstacles)
+            surfaces: context.surfaces, obstacles: obstacles, preserving: previous)
     }
 
     private func refineSupport(_ transform: simd_float4x4) -> simd_float4x4 {
@@ -630,7 +652,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         catch { issue = error.localizedDescription; return }
         let blueprint = selected.challenge.flatMap { QuestBlueprint(rawValue: $0.blueprintID) } ?? QuestBlueprint.first(for: selectedFriend)
         guard game.replayRoom(challenge: blueprint.map { QuestGame(blueprint: $0, introduction: selected.challenge?.introduction) }) else { return }
-        speech.stopSpeaking(at: .immediate)
+        speech.stopSpeaking(at: .immediate); narrator.stop()
         sidekickRig?.root.removeFromParent()
         sidekickRig = nil
         if let anchor { arView.scene.removeAnchor(anchor) }
@@ -926,7 +948,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         rig.floorY = floorHeight
         petAnchor.addChild(rig.root)
         sidekickRig = rig
-        if announce, !speech.isSpeaking { speak(Workshop.arrival(sidekick.card), voice: sidekick.card.voice) }
+        if announce, !(speech.isSpeaking || narrator.isSpeaking) { speak(Workshop.arrival(sidekick.card), voice: sidekick.card.voice) }
     }
 
     /// The scanned floor's height, so the pet stands on it.
@@ -971,7 +993,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         trapRig.hit()
         UIImpactFeedbackGenerator(style: progress.cleared ? .heavy : .medium).impactOccurred()
         guard progress.cleared else {
-            if helper.card.kind == .character, !speech.isSpeaking { speak(helper.card.verbButton, voice: helper.card.voice) }
+            if helper.card.kind == .character, !(speech.isSpeaking || narrator.isSpeaking) { speak(helper.card.verbButton, voice: helper.card.voice) }
             return
         }
         trapRig.shatter()
@@ -1043,8 +1065,13 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     func returnKeepsake() {
         guard game.challenge != nil else { finishQuest(); return }
         guard game.beginChallenge(trackingReady: trackingReady, inReach: inReach) else { return }
-        speak(game.challenge?.feedback ?? "Let's play!")
+        readQuestObjective()
         creatureAnimator?.react(.greeting)
+    }
+
+    func readQuestObjective() {
+        let text = game.challenge.map { $0.blueprint.introduction + " " + $0.blueprint.instructions } ?? friend.questRequest
+        speak(text)
     }
 
     func playChallenge(_ action: QuestAction) {
@@ -1054,7 +1081,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         if result == .retry { creatureAnimator?.react(.puzzled) }
         else if result == .roundWon { creatureAnimator?.react(.play) }
         else if case .replay = action, let cue = game.challenge?.highlightedID {
-            speech.stopSpeaking(at: .immediate)
+            speech.stopSpeaking(at: .immediate); narrator.stop()
             creatureAnimator?.react(FriendReaction.bloopMove(cue))
             UIAccessibility.post(notification: .announcement, argument: cue.capitalized)
         } else if case .select(let id) = action, game.challenge?.blueprint.kind == .memory {
@@ -1103,8 +1130,10 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     }
     /// Friends use their own voice; drawings use the voice Codex picked for them.
     private func speak(_ text: String, voice: DrawingCard.Voice? = nil) {
+        guard !questVoicePresented && !questVoice.busy else { return }
         dialogue = text
-        speech.stopSpeaking(at: .immediate)
+        speech.stopSpeaking(at: .immediate); narrator.stop()
+        if voice == nil { narrator.speak(text, friend: friend); return }
         let line = AVSpeechUtterance(string: text)
         switch voice {
         case .high?: line.rate = 0.5; line.pitchMultiplier = 1.45
@@ -1125,7 +1154,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         capture?.delegate = nil
         capture?.stop(pauseARSession: false)
         capture = nil
-        speech.stopSpeaking(at: .immediate)
+        speech.stopSpeaking(at: .immediate); narrator.stop()
         sidekickRig?.root.removeFromParent()
         sidekickRig = nil
         if let anchor { arView.scene.removeAnchor(anchor) }
@@ -1187,7 +1216,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
             }
         }
         if !suspended && !interrupted && trackingReady {
-            creatureAnimator?.update(delta: delta, speaking: speech.isSpeaking,
+            creatureAnimator?.update(delta: delta, speaking: (speech.isSpeaking || narrator.isSpeaking),
                                      reducedMotion: UIAccessibility.isReduceMotionEnabled, viewer: friendViewer())
         }
         let step = Float(min(delta, 0.1))

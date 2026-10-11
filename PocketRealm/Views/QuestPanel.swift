@@ -180,8 +180,11 @@ struct QuestDrawer<Content: View, Footer: View>: View {
             if isExpanded {
                 ScrollView {
                     content().frame(maxWidth: .infinity, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 18).padding(.top, 4).padding(.bottom, 18)
                 }.scrollBounceBehavior(.basedOnSize)
+                    .defaultScrollAnchor(.top)
+                    .id(title)
                     .accessibilityIdentifier("questDrawerContent")
                     .transition(.opacity)
             }

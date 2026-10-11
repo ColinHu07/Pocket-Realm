@@ -32,6 +32,9 @@ struct ContentView: View {
             experience.setChallengePanelVisible(true)
         }
         .onChange(of: drawerExpanded) { _, expanded in experience.setChallengePanelVisible(expanded) }
+        .sheet(isPresented: $experience.questVoicePresented, onDismiss: { experience.questVoice.stop() }) {
+            QuestVoiceSheet(voice: experience.questVoice, context: experience.voiceQuestContext, poetry: experience.questPoetry)
+        }
         .sheet(isPresented: $experience.connectionPresented) { connection }
         .sheet(isPresented: $experience.themePresented) { themePicker }
         .sheet(item: $previewFriend) { FriendPreview(friend: $0) }
@@ -303,20 +306,34 @@ struct ContentView: View {
     }
 
     private var friendInteractions: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 10) { interactionButtons }
-            VStack(spacing: 8) { interactionButtons }
-        }.font(.subheadline.weight(.semibold)).foregroundStyle(lime).buttonStyle(.bordered)
-            .disabled(!experience.trackingReady || !experience.inReach)
-            .opacity(experience.trackingReady && experience.inReach ? 1 : 0.5)
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8),
+                                 count: dynamicTypeSize.isAccessibilitySize ? 1 : 2), spacing: 8) {
+            if experience.friend == .nibbi {
+                friendAction("Talk", icon: "mic.fill", action: experience.prepareQuestVoice)
+                friendAction("Rhyme quest", icon: "text.quote", action: experience.preparePoetryQuest)
+            }
+            friendAction("Pet", icon: "hand.draw", action: experience.pet)
+            friendAction("Play", icon: "sparkles", action: experience.play)
+            if experience.phase == .complete {
+                friendAction("Chat", icon: "bubble.left.and.bubble.right", action: experience.chat)
+            }
+        }
+        .disabled(!experience.trackingReady || !experience.inReach)
+        .opacity(experience.trackingReady && experience.inReach ? 1 : 0.5)
     }
 
-    @ViewBuilder private var interactionButtons: some View {
-            Button(action: experience.pet) { Label("Pet", systemImage: "hand.draw").frame(minHeight: 32) }
-            Button(action: experience.play) { Label("Play", systemImage: "sparkles").frame(minHeight: 32) }
-            if experience.phase == .complete {
-                Button(action: experience.chat) { Label("Chat", systemImage: "bubble.left.and.bubble.right").frame(minHeight: 32) }
-            }
+    private func friendAction(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.subheadline.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .padding(.horizontal, 8).padding(.vertical, 2)
+                .foregroundStyle(lime)
+                .background(paper.opacity(0.10), in: RoundedRectangle(cornerRadius: 14))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
+        }.buttonStyle(.plain)
     }
 
     private var adventure: some View {
@@ -509,9 +526,14 @@ struct ContentView: View {
                     .font(.subheadline).foregroundStyle(lime)
                 if experience.inReach { friendInteractions }
             case .playing:
+                Button(action: experience.readQuestObjective) { Label("Hear the objective", systemImage: "speaker.wave.2.fill").frame(minHeight: 44) }
                 if !experience.inReach { footnote("Come back to \(experience.friend.name) to continue. Your puzzle is saved.") }
                 if let challenge = experience.game.challenge {
                     QuestPanel(game: challenge, enabled: experience.challengeAvailable, showsActions: false, perform: experience.playChallenge)
+                }
+                if experience.friend == .nibbi && experience.inReach {
+                    Button(action: experience.prepareQuestVoice) { Label("Ask Nibbi", systemImage: "mic.fill").frame(minHeight: 44) }.buttonStyle(.bordered)
+                    Button(action: experience.preparePoetryQuest) { Label("Rhyme quest", systemImage: "text.quote").frame(minHeight: 44) }.buttonStyle(.bordered)
                 }
             case .complete:
                 if let challenge = experience.game.challenge {
@@ -775,6 +797,9 @@ private struct ConnectionSettings: View {
                             .accessibilityElement(children: .combine)
                             .accessibilityIdentifier("planningConnectionStatus")
                     }.id("connection-status")
+                    Section {
+                        NavigationLink("Character voices") { QuestVoiceSettings(voice: experience.questVoice) }
+                    }
                     Section("AI provider") {
                         Picker("Provider", selection: Binding(get: { experience.provider }, set: experience.selectProvider)) {
                             ForEach(PlanningProvider.allCases) { provider in Text(provider.name).tag(provider) }
