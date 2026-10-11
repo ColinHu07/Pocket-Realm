@@ -191,7 +191,7 @@ struct ContentView: View {
 
     private func thumbnail(_ image: UIImage?, placeholder: String, size: CGFloat) -> some View {
         Group {
-            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            if let image { Image(uiImage: image).resizable().scaledToFit() }
             else { Image(systemName: placeholder).font(.system(size: size * 0.45)).foregroundStyle(lime) }
         }.frame(width: size, height: size).background(lime.opacity(0.1)).clipShape(RoundedRectangle(cornerRadius: size * 0.3))
     }

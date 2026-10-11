@@ -489,6 +489,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, drawings.public_status(parts[1]))
             elif len(parts) == 3 and parts[0] == "drawings" and parts[2] == "model.usdz":
                 self.send_file(drawings.model_file(parts[1]), "model/vnd.usdz+zip")
+            elif len(parts) == 3 and parts[0] == "drawings" and parts[2] == "preview.png":
+                self.send_file(drawings.preview_file(parts[1]), "image/png")
             else:
                 self.reply(404, {"error": "Not found"})
         except KeyError:

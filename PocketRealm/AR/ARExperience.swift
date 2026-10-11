@@ -190,6 +190,24 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         return "\(challenge.cleared) Pick up the \(friend.itemName) and bring it back to \(friend.name)."
     }
 
+    /// Fetch optional thumbnails without delaying a finished drawing's arrival.
+    private func refreshPreview(_ creation: Creation, address: String) async {
+        guard !creation.hasPreview,
+              let png = await DrawingWorkshop.preview(address: address, id: creation.id),
+              !Task.isCancelled, inventory.contains(where: { $0.id == creation.id }),
+              Inventory.savePreview(png, for: creation) else { return }
+        inventory = Inventory.load()
+    }
+
+    private func backfillPreviews() async {
+        guard addressIsValid else { return }
+        let address = serverAddress
+        for creation in inventory where !creation.hasPreview {
+            guard !Task.isCancelled else { return }
+            await refreshPreview(creation, address: address)
+        }
+    }
+
     override init() {
         super.init()
         do {
@@ -214,6 +232,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         updates = arView.scene.subscribe(to: SceneEvents.Update.self) { [weak self] event in
             Task { @MainActor [weak self] in self?.tick(event.deltaTime) }
         }
+        Task { [weak self] in await self?.backfillPreviews() }
     }
 
     func start() {
@@ -866,7 +885,10 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
                         let card = status.card ?? DrawingCard(name: status.name ?? "drawing", kind: .object)
                         self.inventory = try Inventory.add(id: status.id, card: card, model: model, photo: image, to: self.inventory)
                         self.setDrawing(.ready(name: card.name), for: purpose)
-                        if let creation = self.inventory.first { self.arrived(creation, for: purpose) }
+                        if let creation = self.inventory.first {
+                            self.arrived(creation, for: purpose)
+                            Task { [weak self] in await self?.refreshPreview(creation, address: address) }
+                        }
                         return
                     }
                     self?.setDrawing(DrawingProgress(status), for: purpose)
@@ -968,7 +990,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
     /// Puts a drawing to work on the current trap. `fresh` means Codex made it for this trap.
     func deployHelper(_ creation: Creation, fresh: Bool = false) {
         guard phase == .challenge, let questAnchor else { return }
-        let placement: HelperRig.Placement = creation.card.kind == .tool ? .hand : .beside
+        let placement: HelperRig.Placement = .beside
         guard let rig = try? HelperRig(creation: creation, placement: placement) else {
             challengeDrawing = .failed("Couldn't load that drawing's 3D model. Try another.")
             return
@@ -1005,7 +1027,7 @@ final class ARExperience: NSObject, ObservableObject, ARSessionDelegate, RoomCap
         game.clearChallenge()
         creatureAnimator?.react(.celebrate)
         UINotificationFeedbackGenerator().notificationOccurred(.success)
-        if helperRig.placement == .hand {
+        if helperRig.kind == .tool {
             // Tools go back in the inventory once the job's done.
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: 1_500_000_000)

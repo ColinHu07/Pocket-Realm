@@ -118,6 +118,16 @@ def public_status(job_id):
     return reply
 
 
+def preview_file(job_id):
+    """The Cycles render of the finished model, used as its thumbnail in the app."""
+    if read_status(job_id).get("status") != "ready":
+        raise KeyError(job_id)
+    path = job_path(job_id, "preview.png")
+    if not os.path.isfile(path):
+        raise KeyError(job_id)
+    return path
+
+
 def model_file(job_id):
     if read_status(job_id).get("status") != "ready":
         raise KeyError(job_id)

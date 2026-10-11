@@ -186,6 +186,15 @@ class DrawingHTTPTests(DrawingJobTests):
         with urlopen(f"{self.base}/drawings/{job}/model.usdz") as result:
             self.assertEqual(result.headers["Content-Type"], "model/vnd.usdz+zip")
             self.assertEqual(result.read(), b"PK\x03\x04model")
+        with self.assertRaises(HTTPError) as caught:
+            urlopen(f"{self.base}/drawings/{job}/preview.png")
+        self.assertEqual(caught.exception.code, 404)
+        caught.exception.close()
+        with open(drawings.job_path(job, "preview.png"), "wb") as handle:
+            handle.write(b"\x89PNGpreview")
+        with urlopen(f"{self.base}/drawings/{job}/preview.png") as result:
+            self.assertEqual(result.headers["Content-Type"], "image/png")
+            self.assertEqual(result.read(), b"\x89PNGpreview")
 
     def test_bad_upload_and_unknown_job(self):
         with self.assertRaises(HTTPError) as caught:
